@@ -106,9 +106,12 @@ export default function FamilyBoard() {
       axios.get(`${API_BASE_URL}/api/calendar-events`, {
         params: { start: start.toISOString(), end: end.toISOString() },
       }),
-      axios.get(`${API_BASE_URL}/api/weather`),
+      // Household weather location; the key itself (WEATHER_API_KEY) is a
+      // separate setting and still missing, so this stays hidden until then.
+      axios.get(`${API_BASE_URL}/api/weather`, { params: { location: 'Savannah, GA' } }),
     ]);
-    if (usersRes.status === 'fulfilled' && Array.isArray(usersRes.value.data)) setUsers(usersRes.value.data);
+    // The bonus pseudo-user (id 0) never renders as a profile.
+    if (usersRes.status === 'fulfilled' && Array.isArray(usersRes.value.data)) setUsers(usersRes.value.data.filter((u) => u.id !== 0));
     if (schedulesRes.status === 'fulfilled' && Array.isArray(schedulesRes.value.data)) setSchedules(schedulesRes.value.data);
     if (historyRes.status === 'fulfilled' && Array.isArray(historyRes.value.data)) setHistoryRows(historyRes.value.data);
     if (eventsRes.status === 'fulfilled' && Array.isArray(eventsRes.value.data)) {
