@@ -37,11 +37,15 @@ const resolveInitialLanguage = async () => {
 
 const App = lazy(() => import('./app.jsx'));
 const PhotosUpload = lazy(() => import('./pages/PhotosUpload.jsx'));
+const FamilyBoard = lazy(() => import('./pages/FamilyBoard.jsx'));
 
 const renderRoute = () => {
   const path = window.location.pathname.replace(/\/+$/, '');
   if (path === '/photos' || path.startsWith('/photos/')) {
     return <PhotosUpload />;
+  }
+  if (path === '/board' || path.startsWith('/board/')) {
+    return <FamilyBoard />;
   }
   return <App />;
 };
