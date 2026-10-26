@@ -164,6 +164,9 @@ export default function FamilyBoard() {
   return (
     <ThemeProvider theme={boardTheme}>
       <Box sx={{ minHeight: '100vh', px: 3, py: 3, boxSizing: 'border-box' }}>
+        <Typography sx={{ fontSize: 16, letterSpacing: 3, textTransform: 'uppercase', color: 'text.secondary', mb: 1 }}>
+          Eden
+        </Typography>
         {loading ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', pt: 10 }}>
             <CircularProgress />
