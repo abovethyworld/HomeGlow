@@ -91,6 +91,8 @@ export default function FamilyBoard() {
   const [weather, setWeather] = useState(null);
   const [calendarError, setCalendarError] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [pending, setPending] = useState({});
+  const [actionError, setActionError] = useState(null);
 
   const key = useMemo(() => todayKey(), []);
 
@@ -161,6 +163,44 @@ export default function FamilyBoard() {
   const profile = view.name === 'profile' ? users.find((u) => u.id === view.userId) : null;
   const profileLeft = profile ? leftByUser.get(profile.id) || [] : [];
 
+  // Today's completions for the open profile, for the Done section and undo.
+  const doneRows = useMemo(() => {
+    if (!profile) return [];
+    return (historyRows || []).filter((r) => Number(r.user_id) === Number(profile.id)
+      && r.date === key && (r.kind === 'completion' || r.kind == null));
+  }, [historyRows, profile, key]);
+
+  const doneTitle = (row) => {
+    const s = schedules.find((x) => x.id === row.chore_schedule_id)
+      || schedules.find((x) => row.chore_id != null && x.chore_id === row.chore_id);
+    return s?.title || row.title || 'Chore';
+  };
+
+  // Same endpoints and body as the chore widget. A second tap while one is
+  // in flight is ignored: the server would 409 and snap the row back.
+  const toggleChore = useCallback(async (scheduleId, userId, toComplete) => {
+    if (pending[scheduleId]) return;
+    setPending((prev) => ({ ...prev, [scheduleId]: true }));
+    setActionError(null);
+    try {
+      await axios.post(`${API_BASE_URL}/api/chores/${toComplete ? 'complete' : 'uncomplete'}`, {
+        chore_schedule_id: scheduleId,
+        user_id: userId,
+        date: key,
+      });
+      await fetchAll();
+    } catch (e) {
+      if (e?.response?.data?.code === 'CHORE_EXPIRED') setActionError('Past due — ask a parent to handle this one.');
+      else setActionError('Could not save that. Tap again.');
+    } finally {
+      setPending((prev) => {
+        const next = { ...prev };
+        delete next[scheduleId];
+        return next;
+      });
+    }
+  }, [pending, key, fetchAll]);
+
   return (
     <ThemeProvider theme={boardTheme}>
       <Box sx={{ minHeight: '100vh', px: 3, py: 3, boxSizing: 'border-box' }}>
@@ -182,18 +222,57 @@ export default function FamilyBoard() {
             <Typography variant="h5" sx={{ mb: 3, color: 'text.secondary' }}>
               {profileLeft.length === 0 ? 'Nothing left today' : `${profileLeft.length} left today`}
             </Typography>
+            {actionError ? (
+              <Typography variant="h6" sx={{ mb: 2, color: 'error.main' }}>{actionError}</Typography>
+            ) : null}
             {profileLeft.length === 0 ? (
               <Typography variant="h6" sx={{ color: 'text.secondary' }}>All done.</Typography>
             ) : (
-              profileLeft.map((s) => (
-                <Box key={s.id} sx={{ py: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
-                  <Typography variant="h5">{s.title}</Typography>
-                  {s.description ? (
-                    <Typography variant="body1" sx={{ color: 'text.secondary' }}>{s.description}</Typography>
-                  ) : null}
-                </Box>
-              ))
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {profileLeft.map((s) => (
+                  <Button
+                    key={s.id}
+                    variant="contained"
+                    disabled={!!pending[s.id]}
+                    onClick={() => toggleChore(s.id, profile.id, true)}
+                    sx={{ minHeight: 88, px: 3, justifyContent: 'space-between', textAlign: 'left' }}
+                  >
+                    <Box>
+                      <Typography variant="h5" component="span" sx={{ display: 'block' }}>{s.title}</Typography>
+                      {s.description ? (
+                        <Typography variant="body1" component="span" sx={{ display: 'block', opacity: 0.8 }}>{s.description}</Typography>
+                      ) : null}
+                    </Box>
+                    <Typography variant="body1" component="span" sx={{ ml: 2, whiteSpace: 'nowrap', opacity: 0.8 }}>
+                      {pending[s.id] ? 'Saving…' : 'Tap to complete'}
+                    </Typography>
+                  </Button>
+                ))}
+              </Box>
             )}
+            {doneRows.length > 0 ? (
+              <Box sx={{ mt: 4 }}>
+                <Typography variant="h5" sx={{ fontWeight: 700, mb: 2 }}>Done today</Typography>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  {doneRows.map((row) => (row.chore_schedule_id == null ? (
+                    <Typography key={row.id} variant="h6" sx={{ color: 'text.secondary' }}>{doneTitle(row)}</Typography>
+                  ) : (
+                    <Button
+                      key={row.id}
+                      variant="outlined"
+                      disabled={!!pending[row.chore_schedule_id]}
+                      onClick={() => toggleChore(row.chore_schedule_id, profile.id, false)}
+                      sx={{ minHeight: 72, px: 3, justifyContent: 'space-between', textAlign: 'left' }}
+                    >
+                      <Typography variant="h6" component="span" sx={{ textDecoration: 'line-through' }}>{doneTitle(row)}</Typography>
+                      <Typography variant="body1" component="span" sx={{ ml: 2, whiteSpace: 'nowrap', opacity: 0.8 }}>
+                        {pending[row.chore_schedule_id] ? 'Saving…' : 'Tap to undo'}
+                      </Typography>
+                    </Button>
+                  )))}
+                </Box>
+              </Box>
+            ) : null}
           </Box>
         ) : (
           <Box>
