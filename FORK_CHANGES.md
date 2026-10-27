@@ -27,6 +27,18 @@ It is the record we will share with the HomeGlow project when the time comes.
   accidental tap should never corrupt the day's data.
 - Upstream idea: touch-first chore cards with undo, sized for wall use.
 
+### Idle return: back to the shared view after 60s — 2026-10-26
+
+- What: while a profile is open, any tap, click, or key press restarts a
+  60-second clock; 60 seconds without one returns the board to the shared
+  Today overview. The five-minute data refresh is not activity and never
+  resets the clock. The dashboard's own screensaver does not run on the
+  board route, so the timer lives in the board itself.
+- Why: a wall board is shared. If someone walks away mid-profile, the next
+  person should find the family view, not the last person's chores.
+- Upstream idea: an idle-return-to-home option for kiosk and wall
+  displays, separate from the screensaver.
+
 ### Board polish: hide the bonus pseudo-user, default weather city — 2026-10-26
 
 - What: the internal bonus pseudo-user no longer appears as a profile
