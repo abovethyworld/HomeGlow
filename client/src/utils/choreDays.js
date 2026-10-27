@@ -6,6 +6,7 @@
 // answered from the crontab's day fields alone, with no Date in any timezone.
 
 import { CronExpressionParser } from 'cron-parser';
+import { patternAllows } from './pattern.js';
 
 // Day states, as the row and the dialog draw them.
 //   done      a completion was logged
@@ -66,10 +67,10 @@ export function missesTracked(schedule) {
  * Whether the schedule was due on `dateStr`, or null when that can't be told
  * from the schedule (until/once-completed chores carry over between days).
  */
-export function dueOn(schedule, dateStr) {
+export function dueOn(schedule, dateStr, pattern = null) {
   if (schedule.crontab && ['until-completed', 'once-completed'].includes(schedule.duration)) return null;
   if (!schedule.crontab) return true;
-  return cronFiresOn(schedule.crontab, dateStr);
+  return cronFiresOn(schedule.crontab, dateStr) && patternAllows(pattern, schedule, dateStr);
 }
 
 // created_at is SQLite CURRENT_TIMESTAMP: UTC, no zone marker.
@@ -101,7 +102,7 @@ export function rowsFor(rows, schedule, userId) {
  * The last `count` days for one person's chore, oldest first, ending today.
  * Each entry is { date, state }.
  */
-export function choreDays({ rows, schedule, userId, today, count = 7, vacation = null, timeZone = undefined }) {
+export function choreDays({ rows, schedule, userId, today, count = 7, vacation = null, timeZone = undefined, pattern = null }) {
   const mine = rowsFor(rows, schedule, userId);
   const done = new Set(mine.filter((r) => r.kind === 'completion' || r.kind == null).map((r) => r.date));
   const missed = new Set(mine.filter((r) => r.kind === 'missed').map((r) => r.date));
@@ -115,7 +116,7 @@ export function choreDays({ rows, schedule, userId, today, count = 7, vacation =
     else if (missed.has(date)) state = 'missed';
     else if (since && date < since) state = 'off';
     else if (inVacation(vacation, date)) state = 'vacation';
-    else if (dueOn(schedule, date) !== true) state = 'off';
+    else if (dueOn(schedule, date, pattern) !== true) state = 'off';
     else state = date === today ? 'today' : 'open';
     days.push({ date, state });
   }

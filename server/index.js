@@ -95,6 +95,7 @@ const axios = require('axios');
 const ICAL = require('ical.js');
 const { CronExpressionParser } = require('cron-parser');
 const { cronFiresOnDate } = require('./utils/cronDay');
+const { patternAllows } = require('./utils/pattern');
 const choreExpiry = require('./utils/choreExpiry');
 const cron = require('node-cron');
 // For widget upload and registry
@@ -3094,6 +3095,17 @@ fastify.delete('/api/chores/:id', async (request, reply) => {
 });
 
 // Chore Schedules routes
+// The household alternating pattern for pattern-owned schedules (see
+// utils/pattern.js), or null when none is configured.
+fastify.get('/api/household-pattern', async (request, reply) => {
+  try {
+    return { pattern: loadHouseholdPattern() };
+  } catch (error) {
+    console.error('Error fetching household pattern:', error);
+    reply.status(500).send({ error: 'Failed to fetch household pattern' });
+  }
+});
+
 fastify.get('/api/chore-schedules', async (request, reply) => {
   try {
     const { user_id, visible, usage, chore_id } = request.query;
@@ -3665,6 +3677,19 @@ function isVacationActiveOn(dateStr) {
 // check: the award path uses real now (default); the nightly missed logger
 // passes end-of-that-day so "snoozed through the day" excludes the chore
 // (issue #72).
+// The household alternating pattern (settings key 'household_pattern', JSON),
+// or null when none is configured. With no pattern, pattern schedules behave
+// exactly like fixed ones, so this is safe to call anywhere.
+function loadHouseholdPattern() {
+  try {
+    const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('household_pattern');
+    if (!row?.value) return null;
+    return JSON.parse(row.value);
+  } catch {
+    return null;
+  }
+}
+
 function getTodaysRegularChoresForUser(userId, dateStr, referenceNow = new Date()) {
   const allUserSchedules = db.prepare(`
     SELECT cs.*,
@@ -3713,7 +3738,10 @@ function getTodaysRegularChoresForUser(userId, dateStr, referenceNow = new Date(
     }
 
     // ensure only chores that are due today are part of today's chores
-    if (cronFiresOnDate(schedule.crontab, dateStr)) {
+    // (a pattern schedule counts only for the pattern owner that day, so the
+    // other member never logs a miss for a chore that was never theirs)
+    if (cronFiresOnDate(schedule.crontab, dateStr)
+      && patternAllows(loadHouseholdPattern(), schedule, dateStr)) {
       todaysChores.push(schedule);
     }
   }

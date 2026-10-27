@@ -49,13 +49,13 @@ function formatLongDate() {
 // once-completed) report no due date, so they count while nothing is logged
 // for them today. Known edge, fixed in step 2: a once-completed chore
 // finished on an earlier day still counts until its schedule is gone.
-function leftSchedulesForUser(schedules, historyRows, userId, key) {
+function leftSchedulesForUser(schedules, historyRows, userId, key, pattern) {
   return (schedules || [])
     .filter((s) => Number(s.user_id) === Number(userId))
     .filter((s) => {
-      const days = choreDays({ rows: historyRows, schedule: s, userId, today: key, count: 1 });
+      const days = choreDays({ rows: historyRows, schedule: s, userId, today: key, count: 1, pattern });
       if (days[0]?.state === 'today') return true;
-      if (dueOn(s, key) !== null) return false;
+      if (dueOn(s, key, pattern) !== null) return false;
       const completedToday = (historyRows || []).some(
         (r) => Number(r.user_id) === Number(userId)
           && (r.chore_schedule_id === s.id || (s.chore_id != null && r.chore_id === s.chore_id))
@@ -89,6 +89,7 @@ export default function FamilyBoard() {
   const [historyRows, setHistoryRows] = useState([]);
   const [events, setEvents] = useState([]);
   const [weather, setWeather] = useState(null);
+  const [pattern, setPattern] = useState(null);
   const [calendarError, setCalendarError] = useState(false);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState({});
@@ -101,7 +102,7 @@ export default function FamilyBoard() {
     start.setHours(0, 0, 0, 0);
     const end = new Date(start);
     end.setDate(end.getDate() + 1);
-    const [usersRes, schedulesRes, historyRes, eventsRes, weatherRes] = await Promise.allSettled([
+    const [usersRes, schedulesRes, historyRes, eventsRes, weatherRes, patternRes] = await Promise.allSettled([
       axios.get(`${API_BASE_URL}/api/users`),
       axios.get(`${API_BASE_URL}/api/chore-schedules`, { params: { visible: true } }),
       axios.get(`${API_BASE_URL}/api/chore-history`, { params: { date: key } }),
@@ -111,6 +112,9 @@ export default function FamilyBoard() {
       // Household weather location; the key itself (WEATHER_API_KEY) is a
       // separate setting and still missing, so this stays hidden until then.
       axios.get(`${API_BASE_URL}/api/weather`, { params: { location: 'Savannah, GA' } }),
+      // Alternating pattern for pattern-owned schedules; without it the
+      // board behaves exactly as before.
+      axios.get(`${API_BASE_URL}/api/household-pattern`),
     ]);
     // The bonus pseudo-user (id 0) never renders as a profile.
     if (usersRes.status === 'fulfilled' && Array.isArray(usersRes.value.data)) setUsers(usersRes.value.data.filter((u) => u.id !== 0));
@@ -125,6 +129,8 @@ export default function FamilyBoard() {
     }
     if (weatherRes.status === 'fulfilled' && weatherRes.value.data) setWeather(weatherRes.value.data);
     else setWeather(null);
+    if (patternRes.status === 'fulfilled' && patternRes.value.data) setPattern(patternRes.value.data.pattern ?? null);
+    else setPattern(null);
     setLoading(false);
   }, [key]);
 
@@ -141,9 +147,9 @@ export default function FamilyBoard() {
 
   const leftByUser = useMemo(() => {
     const map = new Map();
-    users.forEach((u) => map.set(u.id, leftSchedulesForUser(schedules, historyRows, u.id, key)));
+    users.forEach((u) => map.set(u.id, leftSchedulesForUser(schedules, historyRows, u.id, key, pattern)));
     return map;
-  }, [users, schedules, historyRows, key]);
+  }, [users, schedules, historyRows, key, pattern]);
 
   const totalLeft = useMemo(
     () => [...leftByUser.values()].reduce((sum, list) => sum + list.length, 0),
