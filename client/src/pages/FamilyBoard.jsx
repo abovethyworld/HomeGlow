@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { Box, Button, CircularProgress, Typography } from '@mui/material';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
@@ -6,8 +6,8 @@ import { API_BASE_URL } from '../utils/apiConfig.js';
 import { choreDays, dueOn } from '../utils/choreDays.js';
 
 // Family board, step 1: Today-only overview with live data, plus a read-only
-// per-profile list. Tap-to-complete arrives in step 2; the 60s idle return
-// arrives in step 3. Theme-neutral styling on purpose: themes land in step 4.
+// per-profile list. Tap-to-complete arrived in step 2; the 60s idle return
+// arrived in step 3. Theme-neutral styling on purpose: themes land in step 4.
 
 const boardTheme = createTheme();
 
@@ -139,6 +139,29 @@ export default function FamilyBoard() {
     const timer = setInterval(fetchAll, 5 * 60 * 1000);
     return () => clearInterval(timer);
   }, [fetchAll]);
+
+  // Step 3: 60s idle return. While a profile is open, any tap, click, or key
+  // press restarts the clock; 60s without one returns to the shared overview.
+  // The 5-minute data refresh is not activity and never resets the clock.
+  // The dashboard's own screensaver does not run on /board (main.jsx routes
+  // /board straight to this component), so this timer lives here.
+  const idleTimerRef = useRef(null);
+  useEffect(() => {
+    if (view.name !== 'profile') return undefined;
+    const arm = () => {
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = setTimeout(() => setView({ name: 'overview' }), 60 * 1000);
+    };
+    arm();
+    window.addEventListener('pointerdown', arm);
+    window.addEventListener('keydown', arm);
+    return () => {
+      window.removeEventListener('pointerdown', arm);
+      window.removeEventListener('keydown', arm);
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = null;
+    };
+  }, [view]);
 
   const todayEvents = useMemo(
     () => events.filter((e) => eventIsToday(e, key)),
