@@ -42,21 +42,28 @@ It is the record we will share with the HomeGlow project when the time comes.
   carry the family's name.
 - Upstream idea: none, household-specific. Listed for completeness.
 
+### Pattern ownership: alternating household schedules — 2026-10-26
+
+- What: a schedule can be flagged as pattern-owned instead of fixed to one
+  person. A flagged schedule exists as one row per household member with the
+  same date, and only the row belonging to whoever owns that date shows up.
+  Ownership comes from a household pattern setting: two members, their
+  weekday sets, and an anchor Sunday. Every other week the two sets swap,
+  so a chore fixed to a Sunday, or to the 1st or 15th of a month, changes
+  hands on its own. Chores explicitly pinned to one person (a single-owner
+  job, a child's jobs, each person's own medication, a shared job with a
+  default owner) never flip. The owner rule lives in both date checks (the
+  board and the server's nightly job), so the other member never logs a
+  miss for a chore that was never theirs that week. Existing rows were
+  updated in place and mirror rows added, so no past history was orphaned.
+- Why: cron treats a restricted day-of-month and day-of-week as either-or,
+  so a fixed date could never mean "whoever's weekday it falls on". The
+  month-parity workaround was fair but not what the household asked for.
+- Upstream idea: a generic alternating-household pattern for couples and
+  families who split chores by weekday and want the split to rotate
+  without hand-editing schedules. Known gap in this version: the dashboard
+  chore widget does not pattern-gate yet; only the board does.
+
 ## Planned (not built yet)
 
-### Pattern ownership for date-anchored chores
-
-- Problem: a chore fixed to a calendar date (for example, windows on the
-  1st, cars on the 15th) cannot be assigned to "whoever's weekday it
-  falls on", because cron treats a restricted day-of-month and
-  day-of-week as either-or. Today the workaround is rotating by month
-  parity, which is fair but not what the household asked for.
-- Idea: a "pattern" flag on a schedule. A flagged schedule exists as one
-  row per parent with the same date, and only the row belonging to
-  whoever owns that date under the household's weekday pattern shows up.
-  The date check lives in two spots (server and board client), so both
-  learn the same rule.
-- Possible extension: a weekly flip of the whole pattern, so a chore
-  fixed to Sundays alternates owners instead of sitting with one parent
-  until someone reassigns it by hand.
-- Status: scope not yet picked. Nothing here is built.
+Nothing at the moment.
