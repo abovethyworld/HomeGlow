@@ -355,3 +355,35 @@ test('chore widget settings travel with a setup and never leak into the next one
     assert.equal(grownSettings.body.choreWidgetSettings.soundEnabled, false);
     assert.equal(grownSettings.body.choreWidgetSettings.showWeek, true);
 });
+
+test('plugin settings travel with a setup so its plugin widgets render', async () => {
+    // A plugin widget only renders on a display whose plugin settings
+    // enable its file. A setup carrying one captures that enablement,
+    // or the applied setup would leave the widget's slot dark.
+    await configureDevice('plugin-source', ['chores', 'plugin:Scoreboard.html']);
+    await api('/api/devices/plugin-source/settings', {
+        method: 'PATCH',
+        body: JSON.stringify({
+            pluginSettings: {
+                'Scoreboard.html': { enabled: true, transparent: true },
+                'Other.html': { enabled: true },
+            },
+        }),
+    });
+    const saved = await api('/api/device-setups', {
+        method: 'POST',
+        body: JSON.stringify({ name: 'Plugin Screen', deviceName: 'plugin-source' }),
+    });
+    assert.equal(saved.status, 201);
+
+    await configureDevice('plugin-target', ['calendar']);
+    const applied = await api(`/api/devices/plugin-target/apply-setup/${saved.body.setup.id}`, { method: 'POST' });
+    assert.equal(applied.status, 200);
+    assert.deepEqual(await assignmentNames('plugin-target'), ['chores', 'plugin:Scoreboard.html']);
+    const settings = await api('/api/devices/plugin-target/settings');
+    // Only the plugin the setup carries travels; the unrelated
+    // plugin's settings stay on the source device.
+    assert.deepEqual(settings.body.pluginSettings, {
+        'Scoreboard.html': { enabled: true, transparent: true },
+    });
+});

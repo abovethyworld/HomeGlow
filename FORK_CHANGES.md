@@ -317,6 +317,23 @@ new zips by drop or file pick.
   fixed template was copied into the running frontend container,
   which regenerates its config from it on start.
 
+## Device setups carry plugin settings (schema 41)
+
+A plugin widget sits in a setup's tabs like any other widget, but
+it renders only on a display whose plugin settings enable its
+file, and that enablement lives in the device settings, outside
+the tabs. Setups now capture it the way schema 39 captured the
+chore widget's settings: buildConfigSnapshot records the plugin
+settings entries for the plugin files the snapshot's tabs carry,
+a new plugin_settings_json column stores them, and applying a
+setup writes them onto the target display (only for the plugins
+the setup carries; other plugins' settings are untouched). A
+plugin widget with no captured entry is enabled on apply, so a
+setup saved before this capture still shows its plugins. This is
+what lets a kid's saved side include plugin widgets (scoreboard,
+countdown, games) and have them actually appear when his profile
+is tapped on any screen.
+
 ## Upstream sync (Oct 30, 2026)
 
 This fork stays synced with upstream on purpose (Gavin's call):

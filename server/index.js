@@ -2838,6 +2838,26 @@ function buildConfigSnapshot(deviceName) {
     ? rawChoreSettings
     : null;
 
+  // A plugin widget renders only on a display whose plugin settings
+  // enable its file, and that enablement lives on the device, outside
+  // the tabs. A snapshot carrying plugin widgets captures the entries
+  // for those files, so applying the snapshot brings the plugins with
+  // it instead of leaving their slots dark.
+  const pluginFilenames = [...widgetNames]
+    .filter((widgetName) => widgetName.startsWith('plugin:'))
+    .map((widgetName) => widgetName.slice('plugin:'.length));
+  const rawPluginSettings = getDeviceSettingsObject(deviceName).pluginSettings;
+  const capturedPluginSettings = {};
+  if (rawPluginSettings && typeof rawPluginSettings === 'object' && !Array.isArray(rawPluginSettings)) {
+    pluginFilenames.forEach((filename) => {
+      const entry = rawPluginSettings[filename];
+      if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
+        capturedPluginSettings[filename] = entry;
+      }
+    });
+  }
+  const pluginSettings = pluginFilenames.length > 0 ? capturedPluginSettings : null;
+
   return {
     tabs: tabs.map((tab) => ({
       number: tab.number,
@@ -2849,6 +2869,7 @@ function buildConfigSnapshot(deviceName) {
     })),
     widgetSettings,
     choreWidgetSettings,
+    pluginSettings,
   };
 }
 
@@ -2882,10 +2903,14 @@ function writeConfigSnapshotToDevice(deviceName, snapshot) {
     // previous viewer's chore settings behind, and the next profile's
     // setup could never restore its own. Snapshots saved before the
     // block was captured fall back to the widget's defaults.
-    const carriesChores = tabLayoutWidgetNames(
+    const snapshotWidgetNames = tabLayoutWidgetNames(
       Array.isArray(snapshot?.tabs) ? snapshot.tabs : []
-    ).has('chores');
-    if (hasWidgetSettings || carriesChores) {
+    );
+    const carriesChores = snapshotWidgetNames.has('chores');
+    const pluginFilenames = [...snapshotWidgetNames]
+      .filter((widgetName) => widgetName.startsWith('plugin:'))
+      .map((widgetName) => widgetName.slice('plugin:'.length));
+    if (hasWidgetSettings || carriesChores || pluginFilenames.length > 0) {
       const settings = getDeviceSettingsObject(deviceName);
       if (hasWidgetSettings) {
         const existingWidgetSettings = settings.widgetSettings && typeof settings.widgetSettings === 'object'
@@ -2898,6 +2923,29 @@ function writeConfigSnapshotToDevice(deviceName, snapshot) {
         settings.choreWidgetSettings = captured && typeof captured === 'object' && !Array.isArray(captured)
           ? captured
           : { showBonusChores: true, soundEnabled: true, hiddenUserIds: [], showWeek: false };
+      }
+      if (pluginFilenames.length > 0) {
+        // The setup decides its plugin widgets' settings; other
+        // plugins already enabled on this display are left alone.
+        // A plugin the snapshot names but captured nothing for (a
+        // setup saved before the capture existed) is enabled: it is
+        // on the setup's tabs because someone put it there to show.
+        const captured = snapshot.pluginSettings && typeof snapshot.pluginSettings === 'object'
+          && !Array.isArray(snapshot.pluginSettings)
+          ? snapshot.pluginSettings
+          : {};
+        const existingPluginSettings = settings.pluginSettings && typeof settings.pluginSettings === 'object'
+          && !Array.isArray(settings.pluginSettings)
+          ? settings.pluginSettings
+          : {};
+        const mergedPluginSettings = { ...existingPluginSettings };
+        pluginFilenames.forEach((filename) => {
+          const entry = captured[filename];
+          mergedPluginSettings[filename] = entry && typeof entry === 'object' && !Array.isArray(entry)
+            ? entry
+            : { enabled: true };
+        });
+        settings.pluginSettings = mergedPluginSettings;
       }
       db.prepare('UPDATE devices SET device_settings_json = ? WHERE name = ?').run(
         JSON.stringify(settings),
@@ -2976,6 +3024,7 @@ function seedDeviceSetupIfUnconfigured(deviceName) {
         tabs: parseSetupTabs(defaultSetup.tabs_json),
         widgetSettings: parseJsonObject(defaultSetup.widget_settings_json, {}),
         choreWidgetSettings: parseJsonObject(defaultSetup.chore_widget_settings_json, null),
+        pluginSettings: parseJsonObject(defaultSetup.plugin_settings_json, null),
       });
       console.log(`Seeded new device "${deviceName}" from default setup "${defaultSetup.name}"`);
       return;
@@ -3246,18 +3295,20 @@ fastify.post('/api/device-setups', async (request, reply) => {
     const existing = db.prepare('SELECT id FROM device_setups WHERE name = ?').get(normalizedName);
     const saveSetup = db.transaction(() => {
       db.prepare(`
-        INSERT INTO device_setups (name, tabs_json, widget_settings_json, chore_widget_settings_json)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO device_setups (name, tabs_json, widget_settings_json, chore_widget_settings_json, plugin_settings_json)
+        VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(name) DO UPDATE SET
           tabs_json = excluded.tabs_json,
           widget_settings_json = excluded.widget_settings_json,
           chore_widget_settings_json = excluded.chore_widget_settings_json,
+          plugin_settings_json = excluded.plugin_settings_json,
           updated_at = CURRENT_TIMESTAMP
       `).run(
         normalizedName,
         JSON.stringify(snapshot.tabs),
         JSON.stringify(snapshot.widgetSettings),
-        snapshot.choreWidgetSettings ? JSON.stringify(snapshot.choreWidgetSettings) : null
+        snapshot.choreWidgetSettings ? JSON.stringify(snapshot.choreWidgetSettings) : null,
+        snapshot.pluginSettings ? JSON.stringify(snapshot.pluginSettings) : null
       );
 
       // An overwrite that does not mention a profile keeps the old link.
@@ -3368,6 +3419,7 @@ fastify.post('/api/devices/:deviceName/apply-setup/:setupId', async (request, re
       tabs: parseSetupTabs(setup.tabs_json),
       widgetSettings: parseJsonObject(setup.widget_settings_json, {}),
       choreWidgetSettings: parseJsonObject(setup.chore_widget_settings_json, null),
+      pluginSettings: parseJsonObject(setup.plugin_settings_json, null),
     });
 
     return { success: true, message: 'Setup applied successfully' };
