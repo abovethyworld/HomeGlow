@@ -423,4 +423,24 @@ Sync rules that merge established:
 
 ## Planned (not built yet)
 
-Nothing at the moment.
+### Proposal for upstream: Apple calendar event creation — 2026-10-30
+
+- What: event creation and editing for Apple (CalDAV) calendar
+  sources, matching what Google sources already have. Eden's Apple
+  integration syncs events in but offers no way to create one; the
+  only create/edit routes load a Google source. The write side would
+  PUT events to the calendar's CalDAV collection using the connection
+  the source already holds, then let the normal sync pull the result
+  into the cache like any other event.
+- Why: a family on iCloud can see its calendar on the board but can
+  never add to it from the board. Holidays and birthdays are the
+  standing example here: a fixed set of yearly events that had to be
+  added from a phone instead.
+- Why upstream and not this fork: the change sits in credential
+  handling and writes to a family's real calendar, the area upstream
+  is most careful with, and a private version would diverge from
+  upstream in a core service at every sync. Built upstream, every
+  iCloud household gets it and it stays maintained. This household's
+  own need is covered in the meantime outside HomeGlow entirely.
+- Upstream idea: Apple sources reach parity with Google sources in
+  the event editor.
