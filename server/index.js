@@ -6422,34 +6422,62 @@ fastify.get('/api/connections/google/calendars', async (request, reply) => {
   }
 });
 
-// Loads a calendar source by id, asserting it's a writable Google source.
-// Sends a 404 (missing) or 400 (read-only, non-Google) and returns null on failure.
-const loadGoogleCalendarSource = (id, reply) => {
+// Loads a calendar source by id for the event write routes, asserting the
+// source type supports writes. Google and Apple sources are writable; any
+// other type is read-only. Sends a 404 (missing) or 400 (read-only) and
+// returns null on failure.
+const loadWritableCalendarSource = (id, reply) => {
   const source = db.prepare('SELECT * FROM calendar_sources WHERE id = ?').get(id);
   if (!source) {
     reply.status(404).send({ error: 'Calendar source not found' });
     return null;
   }
-  if (source.type !== 'Google') {
+  if (source.type !== 'Google' && source.type !== 'Apple') {
     reply.status(400).send({ error: 'This calendar type is read-only.' });
     return null;
   }
   return source;
 };
 
+// The credential half of an Apple write: the source's own stored app
+// password, decrypted here and used only against that source's iCloud
+// calendar URL. Sends a 400 and returns null when the source carries no
+// usable credentials or its URL does not point at iCloud.
+const loadAppleCredentials = (source, reply) => {
+  const password = source.password ? decryptPassword(source.password) : null;
+  if (!source.username || !password) {
+    reply.status(400).send({ error: 'This Apple calendar source has no stored credentials.' });
+    return null;
+  }
+  let host = '';
+  try { host = new URL(source.url).hostname; } catch { host = ''; }
+  if (host !== 'icloud.com' && !host.endsWith('.icloud.com')) {
+    reply.status(400).send({ error: 'This Apple calendar source does not point at iCloud.' });
+    return null;
+  }
+  return { username: source.username, password };
+};
+
 fastify.post('/api/calendar-sources/:id/events', async (request, reply) => {
   try {
     const { id } = request.params;
-    const source = loadGoogleCalendarSource(id, reply);
+    const source = loadWritableCalendarSource(id, reply);
     if (!source) return;
-    const account = loadConnectedGoogleAccountOr400(reply);
-    if (!account) return;
 
-    const created = await googleCalendar.createEvent(db, account.id, source.url, request.body || {});
+    let created;
+    if (source.type === 'Google') {
+      const account = loadConnectedGoogleAccountOr400(reply);
+      if (!account) return;
+      created = await googleCalendar.createEvent(db, account.id, source.url, request.body || {});
+    } else {
+      const credentials = loadAppleCredentials(source, reply);
+      if (!credentials) return;
+      created = await appleCalDAV.createEvent(source.url, credentials.username, credentials.password, request.body || {});
+    }
     if (calendarSyncService) calendarSyncService.syncSource(source.id).catch(() => { });
     return { success: true, event: created };
   } catch (error) {
-    console.error('Error creating Google calendar event:', error);
+    console.error('Error creating calendar event:', error);
     reply.status(error.status || 500).send({ error: error.message || 'Failed to create event' });
   }
 });
@@ -6457,16 +6485,23 @@ fastify.post('/api/calendar-sources/:id/events', async (request, reply) => {
 fastify.patch('/api/calendar-sources/:id/events/:eventId', async (request, reply) => {
   try {
     const { id, eventId } = request.params;
-    const source = loadGoogleCalendarSource(id, reply);
+    const source = loadWritableCalendarSource(id, reply);
     if (!source) return;
-    const account = loadConnectedGoogleAccountOr400(reply);
-    if (!account) return;
 
-    const updated = await googleCalendar.updateEvent(db, account.id, source.url, eventId, request.body || {});
+    let updated;
+    if (source.type === 'Google') {
+      const account = loadConnectedGoogleAccountOr400(reply);
+      if (!account) return;
+      updated = await googleCalendar.updateEvent(db, account.id, source.url, eventId, request.body || {});
+    } else {
+      const credentials = loadAppleCredentials(source, reply);
+      if (!credentials) return;
+      updated = await appleCalDAV.updateEvent(source.url, credentials.username, credentials.password, eventId, request.body || {});
+    }
     if (calendarSyncService) calendarSyncService.syncSource(source.id).catch(() => { });
     return { success: true, event: updated };
   } catch (error) {
-    console.error('Error updating Google calendar event:', error);
+    console.error('Error updating calendar event:', error);
     reply.status(error.status || 500).send({ error: error.message || 'Failed to update event' });
   }
 });
@@ -6474,16 +6509,22 @@ fastify.patch('/api/calendar-sources/:id/events/:eventId', async (request, reply
 fastify.delete('/api/calendar-sources/:id/events/:eventId', async (request, reply) => {
   try {
     const { id, eventId } = request.params;
-    const source = loadGoogleCalendarSource(id, reply);
+    const source = loadWritableCalendarSource(id, reply);
     if (!source) return;
-    const account = loadConnectedGoogleAccountOr400(reply);
-    if (!account) return;
 
-    await googleCalendar.deleteEvent(db, account.id, source.url, eventId);
+    if (source.type === 'Google') {
+      const account = loadConnectedGoogleAccountOr400(reply);
+      if (!account) return;
+      await googleCalendar.deleteEvent(db, account.id, source.url, eventId);
+    } else {
+      const credentials = loadAppleCredentials(source, reply);
+      if (!credentials) return;
+      await appleCalDAV.deleteEvent(source.url, credentials.username, credentials.password, eventId);
+    }
     if (calendarSyncService) calendarSyncService.syncSource(source.id).catch(() => { });
     return { success: true };
   } catch (error) {
-    console.error('Error deleting Google calendar event:', error);
+    console.error('Error deleting calendar event:', error);
     reply.status(error.status || 500).send({ error: error.message || 'Failed to delete event' });
   }
 });
