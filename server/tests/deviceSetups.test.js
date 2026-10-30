@@ -304,3 +304,54 @@ test('a setup can link to one profile, and a profile links to at most one setup'
     });
     assert.equal(invalid.status, 400);
 });
+
+test('chore widget settings travel with a setup and never leak into the next one', async () => {
+    // A kid's chart: chores only, the parents hidden, no bonus chores.
+    await configureDevice('kid-source', ['chores']);
+    await api('/api/devices/kid-source/settings', {
+        method: 'PATCH',
+        body: JSON.stringify({
+            choreWidgetSettings: { hiddenUserIds: [11, 22], showBonusChores: false, soundEnabled: true, showWeek: false },
+        }),
+    });
+    const kid = await api('/api/device-setups', {
+        method: 'POST',
+        body: JSON.stringify({ name: 'Kid Chart', deviceName: 'kid-source' }),
+    });
+    assert.equal(kid.status, 201);
+
+    // A family screen currently showing everyone's chores.
+    await configureDevice('target-screen', ['chores', 'calendar']);
+    await api('/api/devices/target-screen/settings', {
+        method: 'PATCH',
+        body: JSON.stringify({
+            choreWidgetSettings: { hiddenUserIds: [], showBonusChores: true, soundEnabled: true, showWeek: false },
+        }),
+    });
+
+    const applied = await api(`/api/devices/target-screen/apply-setup/${kid.body.setup.id}`, { method: 'POST' });
+    assert.equal(applied.status, 200);
+    assert.deepEqual(await assignmentNames('target-screen'), ['chores']);
+    const kidSettings = await api('/api/devices/target-screen/settings');
+    assert.deepEqual(kidSettings.body.choreWidgetSettings.hiddenUserIds, [11, 22]);
+    assert.equal(kidSettings.body.choreWidgetSettings.showBonusChores, false);
+
+    // The next profile's setup restores its own chore view in full.
+    await configureDevice('grown-source', ['chores']);
+    await api('/api/devices/grown-source/settings', {
+        method: 'PATCH',
+        body: JSON.stringify({
+            choreWidgetSettings: { hiddenUserIds: [], showBonusChores: true, soundEnabled: false, showWeek: true },
+        }),
+    });
+    const grown = await api('/api/device-setups', {
+        method: 'POST',
+        body: JSON.stringify({ name: 'Grownups', deviceName: 'grown-source' }),
+    });
+    const restored = await api(`/api/devices/target-screen/apply-setup/${grown.body.setup.id}`, { method: 'POST' });
+    assert.equal(restored.status, 200);
+    const grownSettings = await api('/api/devices/target-screen/settings');
+    assert.deepEqual(grownSettings.body.choreWidgetSettings.hiddenUserIds, []);
+    assert.equal(grownSettings.body.choreWidgetSettings.soundEnabled, false);
+    assert.equal(grownSettings.body.choreWidgetSettings.showWeek, true);
+});

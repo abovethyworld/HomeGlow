@@ -117,6 +117,15 @@ It is the record we will share with the HomeGlow project when the time comes.
   screen follow them.
 - Upstream idea: named, shareable device configurations with a
   designated default for first-run devices.
+- Follow-up (schema 39, same day): a setup whose tabs carry the
+  chores widget now also captures the chore widget's own settings
+  block (hidden members, bonus chores, sounds, week view), which
+  lives on the device outside widgetSettings. Applying the setup
+  writes that block to the target device; a setup saved before
+  the capture resets the block to the widget's defaults instead
+  of leaving the previous viewer's settings behind. This is what
+  lets a kid's setup be a chart of only their own chores while a
+  parent's setup on the same screen still shows everyone's.
 
 ### Dashboard profile switcher: see everyone's background — 2026-10-30
 

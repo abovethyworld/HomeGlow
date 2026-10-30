@@ -39,4 +39,5 @@ module.exports = [
   { schemaId: 36, migrationPath: './migrations/schema36-prizeDescription', },
   { schemaId: 37, migrationPath: './migrations/schema37-patternOwnership', },
   { schemaId: 38, migrationPath: './migrations/schema38-deviceSetups', },
+  { schemaId: 39, migrationPath: './migrations/schema39-setupChoreWidgetSettings', },
 ];
