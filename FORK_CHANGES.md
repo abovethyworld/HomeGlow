@@ -28,7 +28,12 @@ It is the record we will share with the HomeGlow project when the time comes.
   offering the members and a Default button: once a side is loaded,
   the only way to switch people is Sleep, the wallpaper, and the
   picker. The row keeps Sleep and Wallpapers, and ProfileSwitcher
-  keeps the member machinery the picker picks through.
+  keeps the member machinery the picker picks through. The idle
+  and picker phases also paint the household background (the
+  cottage) instead of the loaded member's: the theme tokens take
+  the household appearance's background whenever the phase is not
+  active, so a member's wallpaper shows only while their side is
+  open (app.jsx paintedBackground).
 - client/src/utils/idleFade.js (createIdleWakeCycle, picker timeout,
   pick event) + tests, client/src/components/WakePicker.jsx + tests,
   client/src/app.jsx (phase state + wiring), client/src/components/

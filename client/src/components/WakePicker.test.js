@@ -57,4 +57,10 @@ describe('WakePicker', () => {
     expect(APP).toContain('initialPhase: startPhase');
     expect(APP).toContain('useState(startPhase)');
   });
+
+  it('paints the household background while idle or picking, the member\u2019s only while their side is open', () => {
+    expect(APP).toContain('const paintedBackground = dashboardIdle');
+    expect(APP).toContain('householdAppearance?.background ?? appearance.background');
+    expect(APP).toContain('personalizationTokens({ ...appearance, background: paintedBackground }, frameBg)');
+  });
 });

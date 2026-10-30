@@ -713,11 +713,27 @@ const App = () => {
     }
   }, [resolveAutoTheme, applyTheme]);
 
+  // The wake cycle's phase lives up here because the theme tokens
+  // below paint a different background per phase (see paintedBackground).
+  const fadeHideMs = idleFadeTimeoutMs({ isMobile });
+  const startPhase = fadeHideMs != null ? 'idle' : 'active';
+  const [dashboardPhase, setDashboardPhase] = useState(startPhase);
+  const dashboardIdle = dashboardPhase !== 'active';
+  const wakeCycleRef = useRef(null);
+
   // One ordered set of custom properties on the root: the interface colors,
   // then the theme's tokens, then personalization. Applying it clears
   // anything the previous set had that this one does not, so switching theme
   // or personalization never leaves a value behind.
-  const backgroundKey = JSON.stringify(appearance.background ?? null);
+  // While the board is idle or at the wake picker, the painted
+  // background is the household's (the cottage), not the loaded
+  // member's: a member's wallpaper belongs to their side while that
+  // side is open (fork, Gavin's call). Until the household settings
+  // have loaded, the resolved background stands in.
+  const paintedBackground = dashboardIdle
+    ? (householdAppearance?.background ?? appearance.background ?? null)
+    : (appearance.background ?? null);
+  const backgroundKey = JSON.stringify(paintedBackground);
   useEffect(() => {
     const root = document.documentElement;
     root.setAttribute('data-theme', displayTheme);
@@ -736,7 +752,7 @@ const App = () => {
     // Card opacity scales the frame color the theme resolved to, so read it
     // back once the theme's own tokens are in place.
     const frameBg = getComputedStyle(root).getPropertyValue('--hg-frame-bg').trim();
-    const personal = personalizationTokens(appearance, frameBg);
+    const personal = personalizationTokens({ ...appearance, background: paintedBackground }, frameBg);
     if (Object.keys(personal).length > 0) {
       names = applyThemeTokens(root, { ...base, ...personal }, names);
     }
@@ -1043,13 +1059,8 @@ const App = () => {
   // both non-active phases, so the switcher row, the grid and the
   // dock stay melted in the picker too. Suspended while Admin is
   // open or the real screensaver is up, since both own the screen
-  // then.
-  const fadeHideMs = idleFadeTimeoutMs({ isMobile });
-  const startPhase = fadeHideMs != null ? 'idle' : 'active';
-  const [dashboardPhase, setDashboardPhase] = useState(startPhase);
-  const dashboardIdle = dashboardPhase !== 'active';
-  const wakeCycleRef = useRef(null);
-
+  // then. The phase state itself is declared with the theme tokens
+  // above, which paint per phase.
   useEffect(() => {
     const cycle = createIdleWakeCycle({
       idleTimeoutMs: fadeHideMs,
