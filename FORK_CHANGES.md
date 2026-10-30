@@ -24,7 +24,11 @@ It is the record we will share with the HomeGlow project when the time comes.
   tap away instead of a 2-minute wait. A fresh page load starts in
   the idle phase too (the cycle's initialPhase): Eden opens on the
   wallpaper, never on the dashboard, and the picker is the way in
-  from there as well.
+  from there as well. Finally, the dashboard's top row stopped
+  offering the members and a Default button: once a side is loaded,
+  the only way to switch people is Sleep, the wallpaper, and the
+  picker. The row keeps Sleep and Wallpapers, and ProfileSwitcher
+  keeps the member machinery the picker picks through.
 - client/src/utils/idleFade.js (createIdleWakeCycle, picker timeout,
   pick event) + tests, client/src/components/WakePicker.jsx + tests,
   client/src/app.jsx (phase state + wiring), client/src/components/

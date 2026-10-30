@@ -1575,7 +1575,6 @@ const App = () => {
             background and palette to one member's wallpaper. */}
         {!showAdminPanel && !screensaverActive && (
           <ProfileSwitcher
-            appearance={appearance}
             faded={dashboardIdle}
             onSleep={() => wakeCycleRef.current?.sleepNow()}
           />
