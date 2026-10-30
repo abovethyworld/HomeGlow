@@ -238,6 +238,7 @@ const householdChanges = createHouseholdChanges({
 const haPanelRules = require('./services/haPanels');
 const { HaLive } = require('./services/haLive');
 const { registerHaPanelRoutes, lazyDb } = require('./routes/haPanels');
+const { registerWallpaperRoutes } = require('./routes/wallpapers');
 const { registerRoutineRoutes } = require('./routes/routines');
 const { registerNotificationRoutes } = require('./routes/notifications');
 const { registerNtfyRoutes } = require('./routes/ntfy');
@@ -1219,6 +1220,13 @@ const haPanels = registerHaPanelRoutes(fastify, {
     const value = readHouseholdPluginSettings(pluginId)[key];
     return typeof value === 'string' ? value : null;
   },
+});
+
+// Wallpapers: drop-a-zip import and assignment for the wallpaper
+// packages the dashboard switcher and /board wear (routes/wallpapers.js).
+registerWallpaperRoutes(fastify, {
+  db: haDb,
+  uploadsDir: path.join(__dirname, 'uploads'),
 });
 
 // Routines: steps a child ticks off, each routine one ordinary chore
