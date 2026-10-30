@@ -46,4 +46,5 @@ module.exports = [
   // Eden's databases already sit at 39 with the fork's 37-39 applied.
   // Later upstream migrations get renumbered the same way at sync time.
   { schemaId: 40, migrationPath: './migrations/schema40-photoDetails', },
+  { schemaId: 41, migrationPath: './migrations/schema41-setupPluginSettings', },
 ];
