@@ -26,9 +26,15 @@ const PLUGIN_ID = 'wallpaper-engine';
 function backgroundFor(pkg) {
   if (!pkg) return null;
   if (pkg.type === 'video' && pkg.video) return { kind: 'video', src: pkg.video, poster: pkg.preview || undefined };
-  // A scene wears its full-resolution still (extracted from the scene's
-  // own art); the 160px preview is only a fallback.
-  if (pkg.still || pkg.preview) return { kind: 'scene', src: pkg.still || pkg.preview };
+  // A scene plays its animated rebuild when one exists; the
+  // full-resolution still (extracted from the scene's own art) is
+  // the poster and the fallback, and the 160px preview is only a
+  // last resort.
+  if (pkg.animated || pkg.still || pkg.preview) {
+    const scene = { kind: 'scene', src: pkg.animated || pkg.still || pkg.preview };
+    if (pkg.still && pkg.still !== scene.src) scene.poster = pkg.still;
+    return scene;
+  }
   return null;
 }
 
@@ -70,7 +76,7 @@ export default function ProfileSwitcher({ appearance }) {
   const activeId = useMemo(() => {
     const src = appearance?.background?.src;
     if (!src) return null;
-    const hit = members.find(({ pkg }) => pkg.video === src || pkg.preview === src);
+    const hit = members.find(({ pkg }) => pkg.video === src || pkg.preview === src || pkg.animated === src || pkg.still === src);
     return hit ? hit.user.id : null;
   }, [appearance, members]);
 

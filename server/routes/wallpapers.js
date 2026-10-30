@@ -51,6 +51,7 @@ function registerWallpaperRoutes(fastify, { db, uploadsDir }) {
   const backgroundAndColors = (pkg) => {
     let background = null;
     if (pkg.type === 'video' && pkg.video) background = { kind: 'video', src: pkg.video, poster: pkg.preview };
+    else if (pkg.animated) background = { kind: 'scene', src: pkg.animated, ...(pkg.still ? { poster: pkg.still } : {}) };
     else if (pkg.still) background = { kind: 'scene', src: pkg.still };
     else if (pkg.preview) background = { kind: 'scene', src: pkg.preview };
     return {
