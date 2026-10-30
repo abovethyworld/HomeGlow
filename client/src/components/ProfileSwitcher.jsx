@@ -140,14 +140,18 @@ export default function ProfileSwitcher({ appearance }) {
   return (
     <Box
       sx={{
-        position: 'fixed',
-        top: 12,
-        right: 12,
-        zIndex: 1200,
+        // Its own row at the top of the dashboard, in normal flow: the
+        // widget grid starts below it, so the chips can never cover a
+        // widget's header controls (the settings gear lives up there).
+        // When the chips wrap on a narrow screen the row grows taller
+        // and pushes the grid down with it. It used to be position:fixed
+        // at the top-right corner, floating over the first widget row.
         display: 'flex',
         gap: 1,
         flexWrap: 'wrap',
         justifyContent: 'flex-end',
+        px: 1.5,
+        pt: 1.5,
       }}
     >
       <Button disabled={busy} onClick={() => setPickerOpen(true)} sx={chipSx(false, null)}>
