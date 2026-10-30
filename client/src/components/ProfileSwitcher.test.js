@@ -13,7 +13,17 @@ const APP = readFileSync(resolve(__dirname, '../app.jsx'), 'utf8');
 describe('ProfileSwitcher layout', () => {
   it('is not fixed-positioned, so it takes layout space instead of overlaying widgets', () => {
     expect(SWITCHER).not.toContain("position: 'fixed'");
+    expect(SWITCHER).not.toContain("position: 'absolute'");
     expect(SWITCHER).not.toContain('zIndex: 1200');
+  });
+
+  it('is positioned relative with a zIndex, so the row paints above the fixed wallpaper layers that would cover it', () => {
+    // The video/scene background layers are position:fixed with no
+    // zIndex, painted after the switcher in DOM order. A plain in-flow
+    // row loses to them and the chips vanish under the wallpaper; a
+    // relative row keeps its layout height AND wins the paint order.
+    expect(SWITCHER).toContain("position: 'relative'");
+    expect(SWITCHER).toContain('zIndex: 1100');
   });
 
   it('lays the chips out as a wrapping row, so a narrow screen grows the row instead of spilling over widgets', () => {

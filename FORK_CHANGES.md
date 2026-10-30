@@ -14,7 +14,9 @@ It is the record we will share with the HomeGlow project when the time comes.
   normal flow as its own row at the top of the dashboard, so the
   widget grid starts below it. On narrow screens the chips wrap
   inside the row, the row grows taller, and the grid moves down by
-  the same amount.
+  the same amount. The row is position:relative with zIndex 1100:
+  still in flow, but painted above the position:fixed wallpaper
+  background layers, which covered a plain in-flow row completely.
 - client/src/components/ProfileSwitcher.jsx (root Box positioning),
   plus a source-level test in ProfileSwitcher.test.js.
 
