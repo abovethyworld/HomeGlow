@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Calendar Request</title>
+  <script type="application/json" id="homeglow-manifest">
+  {
+    "manifestVersion": 1,
+    "id": "calendar-request",
+    "name": "Calendar Request",
+    "version": "1.0.0",
+    "category": "household",
+    "description": "Ask for a calendar event from the board. Requests travel through the plugin's own storage to the household's agent bridge, which adds them to the family iCloud calendar. The plugin holds no credentials and does no calendar work.",
+    "author": "Gavin",
+    "apiVersion": "v1",
+    "storage": true
+  }
+  </script>
+  <script src="/plugin-sdk/v1.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; height: 100%; font-family: 'Inter', sans-serif; color: var(--text, #e8e8f0); }
+    body { padding: 0.9rem; overflow-y: auto; }
+    h2 { font-size: 1rem; margin: 0 0 0.7rem; font-weight: 600; }
+    h3 { font-size: 0.8rem; margin: 1rem 0 0.4rem; font-weight: 600; opacity: 0.75; text-transform: uppercase; letter-spacing: 0.04em; }
+    .row { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+    .row > * { min-width: 0; }
+    input[type="text"], input[type="date"], select {
+      flex: 1; padding: 0.55rem 0.6rem; font-size: 0.95rem; font-family: inherit;
+      border-radius: 0.5rem; border: 1px solid rgba(140, 140, 170, 0.45);
+      background: rgba(127, 127, 160, 0.12); color: inherit;
+    }
+    label.check { display: flex; align-items: center; gap: 0.45rem; font-size: 0.9rem; padding: 0.3rem 0; }
+    label.check input { width: 1.1rem; height: 1.1rem; }
+    button.send {
+      width: 100%; padding: 0.65rem; font-size: 1rem; font-weight: 600; font-family: inherit;
+      border: none; border-radius: 0.5rem; cursor: pointer;
+      background: var(--accent, #7a5af8); color: #fff;
+    }
+    button.send:disabled { opacity: 0.5; cursor: default; }
+    #status { font-size: 0.85rem; min-height: 1.1rem; margin-top: 0.45rem; opacity: 0.85; }
+    ul { list-style: none; margin: 0; padding: 0; }
+    li {
+      display: flex; align-items: center; gap: 0.5rem;
+      padding: 0.45rem 0.55rem; margin-bottom: 0.35rem;
+      border-radius: 0.5rem; background: rgba(127, 127, 160, 0.10);
+      font-size: 0.9rem;
+    }
+    li .meta { opacity: 0.7; font-size: 0.8rem; white-space: nowrap; }
+    li .grow { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    li button {
+      border: none; border-radius: 0.4rem; padding: 0.3rem 0.55rem; cursor: pointer;
+      background: rgba(200, 80, 80, 0.25); color: inherit; font-family: inherit; font-size: 0.85rem;
+    }
+    li.error { background: rgba(200, 80, 80, 0.18); }
+    .empty { font-size: 0.85rem; opacity: 0.6; padding: 0.2rem 0; }
+  </style>
+</head>
+<body>
+  <h2>Add to the calendar</h2>
+  <div class="row">
+    <input type="text" id="title" placeholder="Event name" maxlength="120">
+  </div>
+  <div class="row">
+    <input type="date" id="date">
+    <select id="calendar">
+      <option value="family">Family</option>
+      <option value="holidays">Holidays &amp; Birthdays</option>
+    </select>
+  </div>
+  <label class="check"><input type="checkbox" id="yearly"> Repeats every year</label>
+  <button class="send" id="send">Add event</button>
+  <div id="status"></div>
+
+  <div id="waiting-block" hidden>
+    <h3>Waiting</h3>
+    <ul id="waiting"></ul>
+  </div>
+
+  <div id="added-block" hidden>
+    <h3>Added by request</h3>
+    <ul id="added"></ul>
+  </div>
+
+  <script>
+    (function () {
+      var titleEl = document.getElementById('title');
+      var dateEl = document.getElementById('date');
+      var calEl = document.getElementById('calendar');
+      var yearlyEl = document.getElementById('yearly');
+      var sendEl = document.getElementById('send');
+      var statusEl = document.getElementById('status');
+      var waitingBlock = document.getElementById('waiting-block');
+      var waitingEl = document.getElementById('waiting');
+      var addedBlock = document.getElementById('added-block');
+      var addedEl = document.getElementById('added');
+
+      var reqs = {};
+      var dones = {};
+      var dels = {};
+
+      function todayLocal() {
+        var d = new Date();
+        var m = String(d.getMonth() + 1).padStart(2, '0');
+        var day = String(d.getDate()).padStart(2, '0');
+        return d.getFullYear() + '-' + m + '-' + day;
+      }
+
+      function newId() {
+        return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+      }
+
+      function calLabel(key) {
+        return key === 'holidays' ? 'Holidays & Birthdays' : 'Family';
+      }
+
+      function render() {
+        waitingEl.innerHTML = '';
+        var reqIds = Object.keys(reqs).sort();
+        waitingBlock.hidden = reqIds.length === 0;
+        reqIds.forEach(function (id) {
+          var r = reqs[id] || {};
+          var li = document.createElement('li');
+          var grow = document.createElement('span');
+          grow.className = 'grow';
+          grow.textContent = r.title || 'Event';
+          var meta = document.createElement('span');
+          meta.className = 'meta';
+          meta.textContent = (r.date || '') + ' · waiting';
+          li.appendChild(grow);
+          li.appendChild(meta);
+          waitingEl.appendChild(li);
+        });
+
+        addedEl.innerHTML = '';
+        var doneIds = Object.keys(dones).sort(function (a, b) {
+          var da = (dones[a] && dones[a].date) || '';
+          var db = (dones[b] && dones[b].date) || '';
+          return da < db ? -1 : da > db ? 1 : 0;
+        });
+        addedBlock.hidden = doneIds.length === 0;
+        doneIds.forEach(function (id) {
+          var r = dones[id] || {};
+          var li = document.createElement('li');
+          var grow = document.createElement('span');
+          grow.className = 'grow';
+          var meta = document.createElement('span');
+          meta.className = 'meta';
+          var btn = document.createElement('button');
+          if (r.error) {
+            li.className = 'error';
+            grow.textContent = r.error;
+            btn.textContent = 'Dismiss';
+            btn.addEventListener('click', function () {
+              HomeGlow.storage.remove('done:' + id).then(load).catch(load);
+            });
+          } else {
+            grow.textContent = r.title || 'Event';
+            meta.textContent = (r.date || '') + ' · ' + calLabel(r.calendar) + (r.yearly ? ' · yearly' : '');
+            if (r.uid && dels[r.uid]) {
+              btn.textContent = 'Removing…';
+              btn.disabled = true;
+            } else {
+              btn.textContent = 'Remove';
+              btn.addEventListener('click', function () {
+                HomeGlow.storage.set('del:' + r.uid, { at: Date.now() }).then(load).catch(load);
+              });
+            }
+          }
+          li.appendChild(grow);
+          if (meta.textContent) li.appendChild(meta);
+          li.appendChild(btn);
+          addedEl.appendChild(li);
+        });
+      }
+
+      function load() {
+        if (!window.HomeGlow || !HomeGlow.storage) return;
+        HomeGlow.storage.list().then(function (all) {
+          reqs = {}; dones = {}; dels = {};
+          Object.keys(all || {}).forEach(function (k) {
+            if (k.indexOf('req:') === 0) reqs[k.slice(4)] = all[k];
+            else if (k.indexOf('done:') === 0) dones[k.slice(5)] = all[k];
+            else if (k.indexOf('del:') === 0) dels[k.slice(4)] = true;
+          });
+          render();
+        }).catch(function () { /* keep the last render */ });
+      }
+
+      sendEl.addEventListener('click', function () {
+        var title = titleEl.value.trim();
+        var date = dateEl.value;
+        if (!title || !date) {
+          statusEl.textContent = 'Give the event a name and a date first.';
+          return;
+        }
+        sendEl.disabled = true;
+        statusEl.textContent = 'Sending…';
+        HomeGlow.storage.set('req:' + newId(), {
+          title: title,
+          date: date,
+          yearly: yearlyEl.checked,
+          calendar: calEl.value,
+          created: Date.now()
+        }).then(function () {
+          titleEl.value = '';
+          yearlyEl.checked = false;
+          statusEl.textContent = 'Sent. It lands on the calendar in a few seconds.';
+          sendEl.disabled = false;
+          load();
+        }).catch(function () {
+          statusEl.textContent = 'Could not send. Try again.';
+          sendEl.disabled = false;
+        });
+      });
+
+      dateEl.value = todayLocal();
+      load();
+      setInterval(load, 20000);
+    })();
+  </script>
+</body>
+</html>
