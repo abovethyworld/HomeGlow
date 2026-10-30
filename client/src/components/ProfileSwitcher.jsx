@@ -18,7 +18,9 @@ const PLUGIN_ID = 'wallpaper-engine';
 function backgroundFor(pkg) {
   if (!pkg) return null;
   if (pkg.type === 'video' && pkg.video) return { kind: 'video', src: pkg.video, poster: pkg.preview || undefined };
-  if (pkg.preview) return { kind: 'scene', src: pkg.preview };
+  // A scene wears its full-resolution still (extracted from the scene's
+  // own art); the 160px preview is only a fallback.
+  if (pkg.still || pkg.preview) return { kind: 'scene', src: pkg.still || pkg.preview };
   return null;
 }
 

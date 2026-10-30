@@ -133,7 +133,7 @@ function layerFromPackage(pkg) {
   const palette = pkg.palette || null;
   const accent = palette?.accent || schemeToCss(pkg.schemeColor);
   if (pkg.type === 'video' && pkg.video) return { type: 'video', src: pkg.video, poster: pkg.preview || null, accent, palette };
-  if (pkg.preview) return { type: 'image', src: pkg.preview, accent, palette };
+  if (pkg.still || pkg.preview) return { type: 'image', src: pkg.still || pkg.preview, accent, palette };
   return null;
 }
 
