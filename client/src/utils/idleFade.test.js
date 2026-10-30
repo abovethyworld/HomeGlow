@@ -67,6 +67,18 @@ describe('idle wake cycle', () => {
     expect(phases).toEqual(['idle', 'picker', 'active', 'idle']);
   });
 
+  it('sleepNow drops straight to idle without waiting, and the next activity opens the picker', () => {
+    const { cycle, phases } = start();
+    cycle.sleepNow();
+    expect(phases).toEqual(['idle']);
+    vi.advanceTimersByTime(10 * 60_000);
+    expect(phases).toEqual(['idle']);
+    cycle.poke();
+    expect(phases).toEqual(['idle', 'picker']);
+    cycle.sleepNow();
+    expect(phases).toEqual(['idle', 'picker', 'idle']);
+  });
+
   it('activity while active restarts the idle clock', () => {
     const { cycle, phases } = start();
     vi.advanceTimersByTime(100_000);

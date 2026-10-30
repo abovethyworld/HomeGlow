@@ -18,7 +18,10 @@ It is the record we will share with the HomeGlow project when the time comes.
   own apply path (the pick travels as the homeglow:wake-profile-pick
   window event), and the dashboard returns. Activity in the picker
   only holds it open; after 30 still seconds it drifts back to the
-  wallpaper. With no members to pick, the picker skips itself.
+  wallpaper. With no members to pick, the picker skips itself. The
+  profile row also has a Sleep chip: it drops the board straight to
+  the idle wallpaper (the cycle's sleepNow()), so the flow is one
+  tap away instead of a 2-minute wait.
 - client/src/utils/idleFade.js (createIdleWakeCycle, picker timeout,
   pick event) + tests, client/src/components/WakePicker.jsx + tests,
   client/src/app.jsx (phase state + wiring), client/src/components/

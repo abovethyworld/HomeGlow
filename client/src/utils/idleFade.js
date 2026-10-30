@@ -90,6 +90,14 @@ export function createIdleWakeCycle({
       set('active');
       armForCurrent();
     },
+    // Skip the wait: drop straight to the idle wallpaper now (the
+    // profile row's Sleep chip). The next activity opens the picker,
+    // exactly as after a natural fade.
+    sleepNow() {
+      if (suspended) return;
+      disarm();
+      set('idle');
+    },
     setSuspended(next) {
       suspended = next;
       if (suspended) {

@@ -39,6 +39,12 @@ describe('WakePicker', () => {
     expect(SWITCHER).toContain('applyRef.current(entry)');
   });
 
+  it('can be reached instantly: the profile row has a Sleep chip wired to sleepNow', () => {
+    expect(SWITCHER).toContain('onSleep');
+    expect(SWITCHER).toContain('Sleep');
+    expect(APP).toContain('onSleep={() => wakeCycleRef.current?.sleepNow()}');
+  });
+
   it('is wired to the wake cycle picker phase in app.jsx', () => {
     expect(APP).toContain("visible={dashboardPhase === 'picker'}");
     expect(APP).toContain('createIdleWakeCycle');
