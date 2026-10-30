@@ -6,6 +6,19 @@ It is the record we will share with the HomeGlow project when the time comes.
 
 ## Shipped
 
+### Mode-split interface colors (colorsDark) — 2026-10-30
+
+- What: the appearance gains an optional `colorsDark` field, a second
+  interface color set that dark mode wears when present (light mode
+  and unset appearances are unchanged). Every wallpaper palette now
+  carries a light set and a dark set derived from its art; the
+  household's colors and colorsDark are the default wallpaper's two
+  sets, and `/board` swaps each member's palette variant with the
+  household mode.
+- Why: Gavin asked for the theme colors to follow the wallpaper in
+  both modes, not just one. Upstream idea: mode-aware interface
+  colors, so a palette never has to compromise between modes.
+
 ### Family board step 4: per-member backgrounds and accents — 2026-10-29
 
 - What: `/board` wears the household's default background (the same
