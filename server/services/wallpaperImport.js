@@ -62,6 +62,7 @@ async function openZip(filePath) {
     if (pos + 46 > directory.length || directory.readUInt32LE(pos) !== 0x02014b50) break;
     const method = directory.readUInt16LE(pos + 10);
     const compSize = directory.readUInt32LE(pos + 20);
+    const size = directory.readUInt32LE(pos + 24);
     const nameLen = directory.readUInt16LE(pos + 28);
     const extraLen = directory.readUInt16LE(pos + 30);
     const commentLen = directory.readUInt16LE(pos + 32);
@@ -72,7 +73,7 @@ async function openZip(filePath) {
     const localHeader = Buffer.alloc(30);
     await handle.read(localHeader, 0, 30, localOffset);
     const dataOffset = localOffset + 30 + localHeader.readUInt16LE(26) + localHeader.readUInt16LE(28);
-    entries.set(name, { method, compSize, dataOffset });
+    entries.set(name, { method, compSize, size, dataOffset });
   }
   if (entries.size === 0) {
     await handle.close();
@@ -110,6 +111,13 @@ async function openZip(filePath) {
       } catch (error) {
         if (error instanceof ImportError) throw error;
         throw new ImportError('BAD_ZIP', `Could not unpack ${name} from the zip.`);
+      }
+      // A short write means the upload itself arrived incomplete;
+      // never let a truncated file pass as the real thing.
+      const { size: written } = await fs.promises.stat(destPath);
+      if (entry.size && written !== entry.size) {
+        await fs.promises.rm(destPath, { force: true });
+        throw new ImportError('TRUNCATED', `${name} arrived incomplete (${written} of ${entry.size} bytes). Try the upload again.`);
       }
     },
     close: () => handle.close(),
@@ -441,8 +449,10 @@ function paletteFromPixels(rgba, schemeColor) {
 function exec(file, args, timeoutMs = 10 * 60 * 1000) {
   return new Promise((resolve, reject) => {
     execFile(file, args, { timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024 }, (error, stdout, stderr) => {
-      if (error) reject(new Error(`${file} failed: ${String(stderr).slice(-400)}`));
-      else resolve({ stdout, stderr });
+      if (error) {
+        const how = error.signal ? `killed by ${error.signal}` : `exit ${error.code}`;
+        reject(new Error(`${file} failed (${how}): ${String(stderr).slice(-400)}`));
+      } else resolve({ stdout, stderr });
     });
   });
 }
@@ -475,6 +485,17 @@ async function importWallpaperZip(zipPath, { uploadsDir, ffmpeg }) {
   const zip = await openZip(zipPath);
   try {
     return await importFromOpenZip(zip, { uploadsDir, ffmpeg });
+  } catch (error) {
+    // A failed import leaves no staging folders behind.
+    try {
+      const wallpapersDir = path.join(uploadsDir, 'wallpapers');
+      for (const name of fs.readdirSync(wallpapersDir)) {
+        if (name.startsWith('.import-')) {
+          fs.rmSync(path.join(wallpapersDir, name), { recursive: true, force: true });
+        }
+      }
+    } catch { /* staging cleanup is best-effort */ }
+    throw error;
   } finally {
     await zip.close();
   }
@@ -506,7 +527,10 @@ async function importFromOpenZip(zip, { uploadsDir, ffmpeg }) {
   else if (/^\d+$/.test(parentFolder)) folder = parentFolder;
   else if (type === 'scene' && parentFolder) folder = slugify(parentFolder);
   else folder = `${Date.now()}`;
-  const dir = path.join(uploadsDir, 'wallpapers', folder);
+  // Build in a staging folder and swap into place only on success, so
+  // a failed import never disturbs the copy already on the board.
+  const finalDir = path.join(uploadsDir, 'wallpapers', folder);
+  const dir = path.join(uploadsDir, 'wallpapers', `.import-${folder}-${Date.now()}`);
   fs.mkdirSync(dir, { recursive: true });
   const urlFor = (file) => `/Uploads/wallpapers/${folder}/${file}`;
 
@@ -541,11 +565,20 @@ async function importFromOpenZip(zip, { uploadsDir, ffmpeg }) {
       throw new ImportError('TOO_SMALL', `This video is only ${info.width}px wide. Backgrounds need at least ${MIN_DISPLAY_WIDTH}px, so it was not attached.`);
     }
     const outPath = path.join(dir, 'video.mp4');
+    // Oversized videos attach as-is and shrink later, off the request
+    // path: a 4K encode does not fit in this container's 256MB memory
+    // cgroup (proven twice by the OOM killer). A host-side watcher
+    // picks up the queue file written below and swaps in the 1080p
+    // version at the same URL.
+    fs.renameSync(rawPath, outPath);
     if (info.width > 1920) {
-      await exec(ffmpeg, ['-y', '-v', 'error', '-i', rawPath, '-vf', 'scale=1920:1080:flags=lanczos', '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '27', '-movflags', '+faststart', outPath]);
-      fs.rmSync(rawPath, { force: true });
-    } else {
-      fs.renameSync(rawPath, outPath);
+      pkg.needsShrink = true;
+      const queueDir = path.join(uploadsDir, 'wallpapers', '.shrink-queue');
+      fs.mkdirSync(queueDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(queueDir, `${folder}.json`),
+        JSON.stringify({ folder, file: 'video.mp4', queuedAt: new Date().toISOString() }),
+      );
     }
     pkg.video = urlFor('video.mp4');
     if (!pkg.preview) {
@@ -607,6 +640,9 @@ async function importFromOpenZip(zip, { uploadsDir, ffmpeg }) {
   }
   if (!palette) throw new ImportError('NO_PALETTE', 'Could not read colors from this wallpaper.');
   pkg.palette = palette;
+
+  fs.rmSync(finalDir, { recursive: true, force: true });
+  fs.renameSync(dir, finalDir);
 
   return pkg;
 }
