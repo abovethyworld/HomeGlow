@@ -1565,7 +1565,13 @@ const App = () => {
         {widgetsLocked && <UpdateIndicator />}
         {/* Per-member look for this display: chips that swap the
             background and palette to one member's wallpaper. */}
-        {!showAdminPanel && !screensaverActive && <ProfileSwitcher appearance={appearance} faded={dashboardIdle} />}
+        {!showAdminPanel && !screensaverActive && (
+          <ProfileSwitcher
+            appearance={appearance}
+            faded={dashboardIdle}
+            onSleep={() => wakeCycleRef.current?.sleepNow()}
+          />
+        )}
         {/* Waking the idle wallpaper lands here, not on the dashboard:
             big profile circles only, and a tap loads that side. */}
         {!showAdminPanel && !screensaverActive && !isMobile && (

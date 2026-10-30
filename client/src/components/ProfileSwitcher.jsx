@@ -49,7 +49,7 @@ export function profilePhotoUrl(user) {
   return pic.startsWith('data:') ? pic : `${API_BASE_URL}/Uploads/users/${pic}`;
 }
 
-export default function ProfileSwitcher({ appearance, faded = false }) {
+export default function ProfileSwitcher({ appearance, faded = false, onSleep }) {
   const [users, setUsers] = useState([]);
   const [packages, setPackages] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -198,6 +198,11 @@ export default function ProfileSwitcher({ appearance, faded = false }) {
         transition: 'opacity 600ms ease',
       }}
     >
+      {onSleep && (
+        <Button disabled={busy} onClick={onSleep} sx={chipSx(false, null)}>
+          Sleep
+        </Button>
+      )}
       <Button disabled={busy} onClick={() => setPickerOpen(true)} sx={chipSx(false, null)}>
         Wallpapers
       </Button>
