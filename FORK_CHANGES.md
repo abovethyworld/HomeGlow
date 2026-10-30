@@ -12,6 +12,16 @@ for this household say so and carry no upstream idea.
 
 ## Shipped
 
+### Calendar Request plugin: ask the board to add an event — 2026-10-30
+
+**What:** A plugin (`plugins/CalendarRequest.html`) that is only a request box: an event name, a date, a target calendar, an optional yearly repeat. It holds no credentials and does no calendar work. Requests are queued in the plugin's own storage as `req:<id>` keys. A small bridge service polls that queue, adds each event to the household's iCloud calendar over CalDAV, and writes the result back into the same storage (`done:<id>` carrying the event UID; a `del:<uid>` key asks for that event back off the calendar). The plugin shows Waiting and Added lists and polls for updates, so the board reflects what the bridge did.
+
+**Why:** Not every household member wants the full calendar editor, and a one-box request surface works for quick adds and for kids. It also gives agent households (households that run an assistant) a clean, credential-free way for the board to ask for events, with the actual calendar write done by a service that is allowed to hold credentials.
+
+**Shape worth copying:** the plugin never learns where the bridge lives and never holds a key. Any service that polls the plugin's storage queue and implements add / report / remove can serve it. Our bridge is kept outside this repo (it holds household credentials and calendar URLs): it uses a dedicated Apple app-specific password, separate from the one Eden syncs with and revocable on its own, and it only ever touches this plugin's storage namespace.
+
+**Upstream idea:** ship the plugin as-is; the queue protocol is the whole contract (`req:` / `done:` / `del:` keys in the plugin's own storage). If HomeGlow ever grows an official agent or webhook surface, the bridge moves behind it and the plugin does not change.
+
 ### Apple calendar writing: iCloud sources can create, edit, and delete events — 2026-10-30
 
 - What: Apple (CalDAV) sources reach parity with Google in the event
