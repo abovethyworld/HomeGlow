@@ -6,6 +6,28 @@ It is the record we will share with the HomeGlow project when the time comes.
 
 ## Shipped
 
+### Device setups: named configurations, defaults, and profile links — 2026-10-30
+
+- What: a device's tabs/widgets configuration can be saved under a
+  name ("Living Room", "Mobile Phone") as a server-side setup
+  (Admin, Displays, Devices). Any device can apply a setup, which
+  replaces its tabs and the setup's per-widget settings; saving
+  under an existing name updates that setup. One setup can be
+  marked default: a brand-new device with no configuration is
+  seeded from it on first read, or from the earliest configured
+  device when no default exists. A setup can also link to one
+  family profile; tapping that profile in the dashboard switcher
+  applies the linked setup to the display alongside the profile's
+  wallpaper and palette. Appearance settings are never part of a
+  setup.
+- Why: Gavin rebuilt the board's widget setup by hand on every
+  new screen, and when HomeGlow moved to a new address each phone
+  came back to the empty first-run screen. Setups make a finished
+  configuration reusable, and profile links let each person's
+  screen follow them.
+- Upstream idea: named, shareable device configurations with a
+  designated default for first-run devices.
+
 ### Dashboard profile switcher: see everyone's background — 2026-10-30
 
 - What: the dashboard gains chips (top right) for Default and each

@@ -2752,6 +2752,240 @@ function touchDeviceUpdateTime(deviceName) {
   db.prepare('UPDATE devices SET updateTime = CURRENT_TIMESTAMP WHERE name = ?').run(deviceName);
 }
 
+// --- Device configuration snapshots and named setups ---
+//
+// A device's configuration is its tabs (each tab's config_json holds the
+// widget layout and per-widget config) plus the per-widget entries of its
+// device settings' widgetSettings (the enabled flags). A snapshot captures
+// exactly that slice — never appearance or other device settings — so a
+// setup can be saved from one device and applied to another without
+// touching how either one looks.
+
+function getDeviceSettingsObject(deviceName) {
+  const row = db.prepare('SELECT device_settings_json FROM devices WHERE name = ?').get(deviceName);
+  return parseJsonObject(row?.device_settings_json, {});
+}
+
+function tabLayoutWidgetNames(tabs) {
+  const names = new Set();
+  tabs.forEach((tab) => {
+    Object.keys(parseTabConfigJson(tab.config_json)).forEach((widgetName) => names.add(widgetName));
+  });
+  return names;
+}
+
+function deviceHasTabConfig(deviceName) {
+  return tabLayoutWidgetNames(getTabsForDevice(deviceName)).size > 0;
+}
+
+// Mirrors the client's first-run test: a device is unconfigured when no
+// tab carries a widget and its settings hold neither widgetSettings nor
+// pluginSettings. The auto-created empty home tab does not count.
+function isDeviceUnconfigured(deviceName) {
+  const tabs = getTabsForDevice(deviceName);
+  if (tabLayoutWidgetNames(tabs).size > 0) {
+    return false;
+  }
+  if (tabs.some((tab) => tab.number !== 1)) {
+    return false;
+  }
+  const settings = getDeviceSettingsObject(deviceName);
+  return !Object.prototype.hasOwnProperty.call(settings, 'widgetSettings')
+    && !Object.prototype.hasOwnProperty.call(settings, 'pluginSettings');
+}
+
+function buildConfigSnapshot(deviceName) {
+  const tabs = getTabsForDevice(deviceName);
+  const widgetNames = tabLayoutWidgetNames(tabs);
+  if (widgetNames.size === 0) {
+    return null;
+  }
+
+  const sourceWidgetSettings = getDeviceSettingsObject(deviceName).widgetSettings;
+  const widgetSettings = {};
+  if (sourceWidgetSettings && typeof sourceWidgetSettings === 'object') {
+    widgetNames.forEach((widgetName) => {
+      const entry = sourceWidgetSettings[widgetName];
+      if (entry && typeof entry === 'object') {
+        widgetSettings[widgetName] = entry;
+      }
+    });
+  }
+
+  return {
+    tabs: tabs.map((tab) => ({
+      number: tab.number,
+      label: tab.label,
+      icon: tab.icon,
+      show_label: tab.show_label,
+      created_at: tab.created_at,
+      config_json: tab.config_json || '{}',
+    })),
+    widgetSettings,
+  };
+}
+
+function writeConfigSnapshotToDevice(deviceName, snapshot) {
+  ensureDeviceExists(deviceName);
+
+  const applySnapshot = db.transaction(() => {
+    db.prepare('DELETE FROM tabs WHERE device_name = ?').run(deviceName);
+
+    const insertTab = db.prepare(
+      'INSERT INTO tabs (device_name, label, icon, show_label, number, created_at, config_json) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    );
+    (Array.isArray(snapshot?.tabs) ? snapshot.tabs : []).forEach((tab) => {
+      insertTab.run(
+        deviceName,
+        tab.label,
+        tab.icon,
+        tab.show_label ? 1 : 0,
+        tab.number,
+        tab.created_at || null,
+        tab.config_json || '{}'
+      );
+    });
+
+    const snapshotWidgetSettings = snapshot?.widgetSettings;
+    if (snapshotWidgetSettings && typeof snapshotWidgetSettings === 'object'
+      && Object.keys(snapshotWidgetSettings).length > 0) {
+      const settings = getDeviceSettingsObject(deviceName);
+      const existingWidgetSettings = settings.widgetSettings && typeof settings.widgetSettings === 'object'
+        ? settings.widgetSettings
+        : {};
+      settings.widgetSettings = { ...existingWidgetSettings, ...snapshotWidgetSettings };
+      db.prepare('UPDATE devices SET device_settings_json = ? WHERE name = ?').run(
+        JSON.stringify(settings),
+        deviceName
+      );
+    }
+
+    ensureHomeTabExists(deviceName);
+    touchDeviceUpdateTime(deviceName);
+  });
+
+  applySnapshot();
+}
+
+function parseSetupTabs(tabsJson) {
+  try {
+    const parsed = JSON.parse(tabsJson || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function summarizeSetup(row) {
+  const tabs = parseSetupTabs(row.tabs_json);
+  return {
+    id: row.id,
+    name: row.name,
+    isDefault: row.is_default === 1,
+    profileUserId: row.profile_user_id ?? null,
+    tabCount: tabs.length,
+    widgetCount: tabLayoutWidgetNames(tabs.map((tab) => ({ config_json: tab.config_json }))).size,
+    createdAt: sqliteUtcToIso(row.created_at),
+    updatedAt: sqliteUtcToIso(row.updated_at),
+  };
+}
+
+function getSetupRowById(setupId) {
+  return db.prepare('SELECT * FROM device_setups WHERE id = ?').get(setupId);
+}
+
+function findEarliestConfiguredDeviceName(excludeDeviceName) {
+  const devices = db.prepare('SELECT name FROM devices ORDER BY id ASC').all();
+  for (const device of devices) {
+    if (device.name === excludeDeviceName) {
+      continue;
+    }
+    if (deviceHasTabConfig(device.name)) {
+      return device.name;
+    }
+  }
+  return null;
+}
+
+// First-read seeding for a brand-new device: give it a starting
+// configuration instead of the empty first-run screen. The designated
+// default setup wins; without one, the earliest configured device is the
+// template. Only ever runs on a device with no configuration of its own —
+// a configured device is overwritten solely by an explicit setup apply.
+// Demo mode keeps its own client-side seeding, so it is skipped here.
+function seedDeviceSetupIfUnconfigured(deviceName) {
+  if (DEMO_MODE || !deviceName) {
+    return;
+  }
+
+  try {
+    if (!isDeviceUnconfigured(deviceName)) {
+      return;
+    }
+
+    const defaultSetup = db.prepare(
+      'SELECT * FROM device_setups WHERE is_default = 1 ORDER BY id ASC LIMIT 1'
+    ).get();
+    if (defaultSetup) {
+      writeConfigSnapshotToDevice(deviceName, {
+        tabs: parseSetupTabs(defaultSetup.tabs_json),
+        widgetSettings: parseJsonObject(defaultSetup.widget_settings_json, {}),
+      });
+      console.log(`Seeded new device "${deviceName}" from default setup "${defaultSetup.name}"`);
+      return;
+    }
+
+    const sourceDeviceName = findEarliestConfiguredDeviceName(deviceName);
+    if (!sourceDeviceName) {
+      return;
+    }
+    const snapshot = buildConfigSnapshot(sourceDeviceName);
+    if (!snapshot) {
+      return;
+    }
+    writeConfigSnapshotToDevice(deviceName, snapshot);
+    console.log(`Seeded new device "${deviceName}" from device "${sourceDeviceName}"`);
+  } catch (error) {
+    console.error('Error seeding device setup:', error);
+  }
+}
+
+const SETUP_NAME_MAX_LENGTH = 64;
+
+function normalizeSetupName(raw) {
+  if (typeof raw !== 'string') {
+    return '';
+  }
+  return raw.normalize('NFC').trim();
+}
+
+function isValidSetupName(name) {
+  return name.length >= 1 && name.length <= SETUP_NAME_MAX_LENGTH && /[\p{L}\p{N}]/u.test(name);
+}
+
+// A setup's optional profile link: null means unlinked. A non-null value
+// must be a real family profile (the id 0 pseudo-user is not one).
+function isValidProfileUserId(profileUserId) {
+  if (profileUserId === null) {
+    return true;
+  }
+  if (!Number.isInteger(profileUserId) || profileUserId <= 0) {
+    return false;
+  }
+  return !!db.prepare('SELECT id FROM users WHERE id = ?').get(profileUserId);
+}
+
+// Points the profile link at the given setup row, clearing it from any
+// other setup: one profile drives at most one setup, so a profile tap
+// never has to choose between two. Runs inside the caller's write.
+function setSetupProfileLink(setupId, profileUserId) {
+  if (profileUserId !== null) {
+    db.prepare('UPDATE device_setups SET profile_user_id = NULL WHERE profile_user_id = ? AND id != ?')
+      .run(profileUserId, setupId);
+  }
+  db.prepare('UPDATE device_setups SET profile_user_id = ? WHERE id = ?').run(profileUserId, setupId);
+}
+
 // Devices API Endpoints
 fastify.get('/api/devices', async (request, reply) => {
   try {
@@ -2784,6 +3018,7 @@ fastify.get('/api/devices/:deviceName/settings', async (request, reply) => {
   }
 
   try {
+    seedDeviceSetupIfUnconfigured(deviceName);
     const row = db.prepare('SELECT device_settings_json FROM devices WHERE name = ?').get(deviceName);
     const lastModifiedMs = getDeviceUpdateTimeMs(deviceName);
     if (!row) {
@@ -2918,6 +3153,174 @@ fastify.post('/api/devices/:deviceName/copy-from/:sourceDeviceName', async (requ
   } catch (error) {
     console.error('Error copying device data:', error);
     reply.status(500).send({ error: 'Failed to copy device data' });
+  }
+});
+
+// Device Setups API Endpoints
+//
+// A setup is a named snapshot of one device's tabs/widgets configuration,
+// stored server-side so every device can see and use the same setups.
+// Saving copies the source device's current configuration (saving under
+// an existing name replaces that setup's snapshot). Applying a setup to
+// a device is always an explicit action and replaces that device's tabs
+// and the snapshot's per-widget settings.
+fastify.get('/api/device-setups', async (request, reply) => {
+  try {
+    const rows = db.prepare('SELECT * FROM device_setups ORDER BY name ASC').all();
+    return rows.map(summarizeSetup);
+  } catch (error) {
+    console.error('Error fetching device setups:', error);
+    reply.status(500).send({ error: 'Failed to fetch device setups' });
+  }
+});
+
+fastify.post('/api/device-setups', async (request, reply) => {
+  const body = request.body || {};
+  const { name, deviceName } = body;
+  const normalizedName = normalizeSetupName(name);
+  const hasProfileLink = Object.prototype.hasOwnProperty.call(body, 'profileUserId');
+  const profileUserId = hasProfileLink ? (body.profileUserId ?? null) : undefined;
+
+  if (!isValidSetupName(normalizedName)) {
+    return reply.status(400).send({ error: 'Setup name must be 1-64 characters and contain at least one letter or digit' });
+  }
+  if (!deviceName || typeof deviceName !== 'string') {
+    return reply.status(400).send({ error: 'deviceName is required' });
+  }
+  if (hasProfileLink && !isValidProfileUserId(profileUserId)) {
+    return reply.status(400).send({ error: 'profileUserId does not match a family profile' });
+  }
+
+  try {
+    const snapshot = buildConfigSnapshot(deviceName);
+    if (!snapshot) {
+      return reply.status(400).send({ error: 'Device has no tabs or widget configuration to save' });
+    }
+
+    const existing = db.prepare('SELECT id FROM device_setups WHERE name = ?').get(normalizedName);
+    const saveSetup = db.transaction(() => {
+      db.prepare(`
+        INSERT INTO device_setups (name, tabs_json, widget_settings_json)
+        VALUES (?, ?, ?)
+        ON CONFLICT(name) DO UPDATE SET
+          tabs_json = excluded.tabs_json,
+          widget_settings_json = excluded.widget_settings_json,
+          updated_at = CURRENT_TIMESTAMP
+      `).run(normalizedName, JSON.stringify(snapshot.tabs), JSON.stringify(snapshot.widgetSettings));
+
+      // An overwrite that does not mention a profile keeps the old link.
+      if (hasProfileLink) {
+        const row = db.prepare('SELECT id FROM device_setups WHERE name = ?').get(normalizedName);
+        setSetupProfileLink(row.id, profileUserId);
+      }
+    });
+    saveSetup();
+
+    const row = db.prepare('SELECT * FROM device_setups WHERE name = ?').get(normalizedName);
+    return reply.status(existing ? 200 : 201).send({
+      success: true,
+      created: !existing,
+      setup: summarizeSetup(row),
+    });
+  } catch (error) {
+    console.error('Error saving device setup:', error);
+    reply.status(500).send({ error: 'Failed to save device setup' });
+  }
+});
+
+fastify.patch('/api/device-setups/:setupId', async (request, reply) => {
+  const setupId = parseInt(request.params.setupId, 10);
+  const body = request.body || {};
+  const { name, isDefault } = body;
+  const hasProfileLink = Object.prototype.hasOwnProperty.call(body, 'profileUserId');
+  const profileUserId = hasProfileLink ? (body.profileUserId ?? null) : undefined;
+
+  try {
+    const row = Number.isFinite(setupId) ? getSetupRowById(setupId) : null;
+    if (!row) {
+      return reply.status(404).send({ error: 'Setup not found' });
+    }
+
+    if (hasProfileLink && !isValidProfileUserId(profileUserId)) {
+      return reply.status(400).send({ error: 'profileUserId does not match a family profile' });
+    }
+
+    if (name !== undefined) {
+      const normalizedName = normalizeSetupName(name);
+      if (!isValidSetupName(normalizedName)) {
+        return reply.status(400).send({ error: 'Setup name must be 1-64 characters and contain at least one letter or digit' });
+      }
+      const clash = db.prepare('SELECT id FROM device_setups WHERE name = ? AND id != ?').get(normalizedName, setupId);
+      if (clash) {
+        return reply.status(409).send({ error: 'A setup with that name already exists' });
+      }
+      db.prepare('UPDATE device_setups SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(normalizedName, setupId);
+    }
+
+    if (isDefault !== undefined) {
+      const applyDefaultFlag = db.transaction(() => {
+        if (isDefault) {
+          // Only one default at a time: it is the seeding source for new devices.
+          db.prepare('UPDATE device_setups SET is_default = 0 WHERE is_default = 1').run();
+          db.prepare('UPDATE device_setups SET is_default = 1 WHERE id = ?').run(setupId);
+        } else {
+          db.prepare('UPDATE device_setups SET is_default = 0 WHERE id = ?').run(setupId);
+        }
+      });
+      applyDefaultFlag();
+    }
+
+    if (hasProfileLink) {
+      setSetupProfileLink(setupId, profileUserId);
+    }
+
+    return { success: true, setup: summarizeSetup(getSetupRowById(setupId)) };
+  } catch (error) {
+    console.error('Error updating device setup:', error);
+    reply.status(500).send({ error: 'Failed to update device setup' });
+  }
+});
+
+fastify.delete('/api/device-setups/:setupId', async (request, reply) => {
+  const setupId = parseInt(request.params.setupId, 10);
+
+  try {
+    const result = Number.isFinite(setupId)
+      ? db.prepare('DELETE FROM device_setups WHERE id = ?').run(setupId)
+      : { changes: 0 };
+    if (result.changes === 0) {
+      return reply.status(404).send({ error: 'Setup not found' });
+    }
+    return { success: true, message: 'Setup deleted successfully' };
+  } catch (error) {
+    console.error('Error deleting device setup:', error);
+    reply.status(500).send({ error: 'Failed to delete device setup' });
+  }
+});
+
+fastify.post('/api/devices/:deviceName/apply-setup/:setupId', async (request, reply) => {
+  const { deviceName } = request.params;
+  const setupId = parseInt(request.params.setupId, 10);
+
+  if (!deviceName) {
+    return reply.status(400).send({ error: 'deviceName is required' });
+  }
+
+  try {
+    const setup = Number.isFinite(setupId) ? getSetupRowById(setupId) : null;
+    if (!setup) {
+      return reply.status(404).send({ error: 'Setup not found' });
+    }
+
+    writeConfigSnapshotToDevice(deviceName, {
+      tabs: parseSetupTabs(setup.tabs_json),
+      widgetSettings: parseJsonObject(setup.widget_settings_json, {}),
+    });
+
+    return { success: true, message: 'Setup applied successfully' };
+  } catch (error) {
+    console.error('Error applying device setup:', error);
+    reply.status(500).send({ error: 'Failed to apply device setup' });
   }
 });
 
@@ -4813,6 +5216,7 @@ fastify.get('/api/devices/:deviceName/tabs', async (request, reply) => {
   }
 
   try {
+    seedDeviceSetupIfUnconfigured(deviceName);
     const tabs = db.prepare('SELECT * FROM tabs WHERE device_name = ? ORDER BY number ASC').all(deviceName);
     const lastModifiedMs = getDeviceUpdateTimeMs(deviceName);
     // region #98 - expected to get removed in the future (legacy empty-tabs API fallback)
@@ -5032,6 +5436,7 @@ fastify.get('/api/devices/:deviceName/widget-assignments', async (request, reply
     return reply.status(400).send({ error: 'deviceName is required' });
   }
   try {
+    seedDeviceSetupIfUnconfigured(deviceName);
     const lastModifiedMs = getDeviceUpdateTimeMs(deviceName);
     return sendJsonWithConditionalCache(request, reply, listWidgetAssignmentsFromTabLayouts(deviceName), lastModifiedMs);
   } catch (error) {

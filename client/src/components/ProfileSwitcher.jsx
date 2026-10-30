@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { Box, Button } from '@mui/material';
 import { API_BASE_URL } from '../utils/apiConfig.js';
+import { getDeviceApiBase } from '../utils/deviceName.js';
 import { saveAppearanceFields } from '../utils/appearanceSave.js';
 import WallpaperPicker from './WallpaperPicker.jsx';
 
@@ -13,7 +14,13 @@ import WallpaperPicker from './WallpaperPicker.jsx';
 // overrides and the household look returns. The household appearance
 // itself is never touched. Same save path and refresh event the
 // Admin panel uses.
+//
+// If the tapped member has a device setup linked to their profile,
+// the tap also applies that setup's tabs/widgets configuration to
+// this display (an explicit action, like the appearance change).
+// app.jsx refetches tabs and assignments on the config-updated event.
 const DEVICE_SETTINGS_UPDATED_EVENT = 'homeglow:device-settings-updated';
+const DEVICE_CONFIG_UPDATED_EVENT = 'homeglow:device-config-updated';
 const PLUGIN_ID = 'wallpaper-engine';
 
 function backgroundFor(pkg) {
@@ -87,7 +94,28 @@ export default function ProfileSwitcher({ appearance }) {
     }
   };
 
-  const apply = (entry) => applyPackage(entry ? entry.pkg : null);
+  const applyProfileSetup = async (userId) => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/device-setups`);
+      const linked = Array.isArray(response.data)
+        ? response.data.find((setup) => setup.profileUserId === userId)
+        : null;
+      if (!linked) return;
+      await axios.post(`${getDeviceApiBase(API_BASE_URL)}/apply-setup/${linked.id}`);
+      window.dispatchEvent(new Event(DEVICE_CONFIG_UPDATED_EVENT));
+    } catch {
+      // A failed apply leaves the current configuration in place.
+    }
+  };
+
+  const apply = (entry) => {
+    void applyPackage(entry ? entry.pkg : null);
+    // Only a member tap carries a profile, so only it can apply a
+    // linked setup; Default never touches the configuration.
+    if (entry) {
+      void applyProfileSetup(entry.user.id);
+    }
+  };
 
   const chipSx = (isActive, accent) => ({
     minHeight: 44,
