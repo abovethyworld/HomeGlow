@@ -136,9 +136,10 @@ function layerFromPackage(pkg) {
   return null;
 }
 
-// Full-screen background layer with a light scrim over it, so the board's
-// dark text and solid buttons stay readable over any wallpaper.
-function BoardBackground({ layer }) {
+// Full-screen background layer with a scrim over it, so the board's text
+// and solid buttons stay readable over any wallpaper. The scrim is the
+// wallpaper's own soft color in light mode and its deep color in dark.
+function BoardBackground({ layer, dark }) {
   if (!layer) return null;
   const mediaStyle = {
     position: 'fixed', inset: 0, width: '100vw', height: '100%',
@@ -163,7 +164,7 @@ function BoardBackground({ layer }) {
       ) : (
         <img src={layer.src} alt="" style={mediaStyle} />
       )}
-      <Box sx={{ position: 'fixed', inset: 0, backgroundColor: hexToRgba(layer.palette?.soft, 0.66) || 'rgba(250, 250, 252, 0.60)' }} />
+      <Box sx={{ position: 'fixed', inset: 0, backgroundColor: (dark ? hexToRgba(layer.palette?.deep, 0.80) : hexToRgba(layer.palette?.soft, 0.66)) || (dark ? 'rgba(14, 14, 18, 0.80)' : 'rgba(250, 250, 252, 0.60)') }} />
     </Box>
   );
 }
@@ -181,6 +182,7 @@ export default function FamilyBoard() {
   const [pending, setPending] = useState({});
   const [actionError, setActionError] = useState(null);
   const [wallpapers, setWallpapers] = useState({ byUser: {}, defaultLayer: null });
+  const [boardDark, setBoardDark] = useState(false);
 
   const key = useMemo(() => todayKey(), []);
 
@@ -229,6 +231,11 @@ export default function FamilyBoard() {
       if (appearanceRes.status === 'fulfilled') {
         const appearance = normalizeHouseholdAppearance(appearanceRes.value.data?.[APPEARANCE_SETTING_KEY]);
         defaultLayer = layerFromAppearance(appearance.background);
+        // The board follows the household mode. Auto resolves here by the
+        // display's own scheme; the dashboard's sunrise-based auto is
+        // close enough that the two rarely disagree.
+        setBoardDark(appearance.mode === 'dark'
+          || (appearance.mode === 'auto' && !!window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches));
       }
       const byUser = {};
       if (wallpaperRes.status === 'fulfilled' && wallpaperRes.value.data) {
@@ -317,7 +324,10 @@ export default function FamilyBoard() {
   // falls back to the default rather than a blank board.
   const profileLayer = profile ? layerFromPackage(wallpapers.byUser[profile.id]) : null;
   const activeLayer = profile ? (profileLayer || wallpapers.defaultLayer) : wallpapers.defaultLayer;
-  const profileAccent = profileLayer?.accent || null;
+  // The palette variant follows the mode: dark mode takes each
+  // wallpaper's dark accent, light mode its regular one.
+  const variantAccent = (layer) => (boardDark ? (layer?.palette?.dark?.accent || layer?.accent) : layer?.accent) || null;
+  const profileAccent = variantAccent(profileLayer);
 
   // Today's completions for the open profile, for the Done section and undo.
   const doneRows = useMemo(() => {
@@ -360,7 +370,7 @@ export default function FamilyBoard() {
   return (
     <ThemeProvider theme={boardTheme}>
       <Box sx={{ minHeight: '100vh', px: 3, py: 3, boxSizing: 'border-box', position: 'relative' }}>
-        <BoardBackground layer={activeLayer} />
+        <BoardBackground layer={activeLayer} dark={boardDark} />
         <Box sx={{ position: 'relative', zIndex: 1 }}>
         <Typography sx={{ fontSize: 16, letterSpacing: 3, textTransform: 'uppercase', color: 'text.secondary', mb: 1 }}>
           Eden
@@ -374,7 +384,7 @@ export default function FamilyBoard() {
             <Button variant="text" onClick={() => setView({ name: 'overview' })} sx={{ fontSize: 20, mb: 2 }}>
               ← Back
             </Button>
-            <Typography variant="h3" sx={{ fontWeight: 700, mb: 1, ...(profileLayer?.palette?.deep || profileAccent ? { color: profileLayer?.palette?.deep || profileAccent } : {}) }}>
+            <Typography variant="h3" sx={{ fontWeight: 700, mb: 1, ...((boardDark ? profileLayer?.palette?.dark?.secondary : profileLayer?.palette?.deep) || profileAccent ? { color: (boardDark ? profileLayer?.palette?.dark?.secondary : profileLayer?.palette?.deep) || profileAccent } : {}) }}>
               {profile.username}
             </Typography>
             <Typography variant="h5" sx={{ mb: 3, color: 'text.secondary' }}>
@@ -469,7 +479,9 @@ export default function FamilyBoard() {
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 {users.map((u) => {
                   const left = leftByUser.get(u.id) || [];
-                  const accent = wallpapers.byUser[u.id]?.palette?.accent || schemeToCss(wallpapers.byUser[u.id]?.schemeColor);
+                  const accent = (boardDark ? wallpapers.byUser[u.id]?.palette?.dark?.accent : null)
+                    || wallpapers.byUser[u.id]?.palette?.accent
+                    || schemeToCss(wallpapers.byUser[u.id]?.schemeColor);
                   return (
                     <Button
                       key={u.id}

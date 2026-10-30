@@ -58,7 +58,7 @@ describe('resolveAppearance', () => {
     expect(resolved.mode).toBe('light');
     expect(resolved.colors).toEqual(BERRY);
     expect(resolved.source).toEqual({
-      theme: 'household', mode: 'device', colors: 'household', autoDark: 'household',
+      theme: 'household', mode: 'device', colors: 'household', colorsDark: 'household', autoDark: 'household',
       background: 'household', cardOpacity: 'household', dimming: 'household',
     });
   });

@@ -318,9 +318,12 @@ const App = () => {
     [baseTheme, weatherScene, appearance.theme, themeRegistry],
   );
   const displayTheme = themeDisplayMode(activeTheme, theme);
+  // Dark mode wears the dark interface colors when the appearance sets
+  // them (the wallpaper palettes do); otherwise it shares light's set.
+  const effectiveColors = displayTheme === 'dark' && appearance.colorsDark ? appearance.colorsDark : interfaceColors;
   const themeColors = useMemo(
-    () => (activeTheme.colors ? { ...interfaceColors, ...activeTheme.colors } : interfaceColors),
-    [activeTheme, interfaceColors],
+    () => (activeTheme.colors ? { ...effectiveColors, ...activeTheme.colors } : effectiveColors),
+    [activeTheme, effectiveColors],
   );
   // Always a provider, so switching between Classic and a themed look never
   // changes the tree's shape (which would remount everything, Admin included).

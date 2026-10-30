@@ -19,7 +19,7 @@ import { DEFAULT_THEME_ID } from './themes.js';
 import { normalizeBackground, normalizeCardOpacity } from './personalize.js';
 
 export const APPEARANCE_SETTING_KEY = 'appearance';
-export const APPEARANCE_FIELDS = ['theme', 'mode', 'colors', 'autoDark', 'background', 'cardOpacity', 'dimming'];
+export const APPEARANCE_FIELDS = ['theme', 'mode', 'colors', 'colorsDark', 'autoDark', 'background', 'cardOpacity', 'dimming'];
 export const MODES = ['light', 'dark', 'auto'];
 
 // Display dimming (see utils/displayDim.js): idle dimming via a CSS brightness
@@ -39,6 +39,9 @@ export const DEFAULT_APPEARANCE = {
   theme: DEFAULT_THEME_ID,
   mode: 'light',
   colors: { ...DEFAULT_INTERFACE_COLORS },
+  // Optional dark-mode interface colors. Null means dark mode wears the
+  // same colors as light; the wallpaper palettes set both.
+  colorsDark: null,
   autoDark: { ...DEFAULT_AUTO_DARK_MODE_SETTINGS },
   // Personalization at its defaults leaves the theme as it is.
   background: { kind: 'none' },
@@ -96,7 +99,8 @@ const normalizeField = (field, value) => {
   if (field === 'cardOpacity') return normalizeCardOpacity(value);
   if (!isObject(value)) return undefined;
   if (field === 'dimming') return normalizeDimming(value);
-  return field === 'colors' ? normalizeInterfaceColors(value) : normalizeAutoDarkModeSettings(value);
+  if (field === 'colors' || field === 'colorsDark') return normalizeInterfaceColors(value);
+  return normalizeAutoDarkModeSettings(value);
 };
 
 /** The household appearance, complete: missing or invalid fields take the defaults. */
