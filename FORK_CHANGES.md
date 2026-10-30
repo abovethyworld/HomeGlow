@@ -157,11 +157,21 @@ new zips by drop or file pick.
 - server/services/wallpaperImport.js: dependency-free import. Zips
   are read from disk entry by entry (the backend container has a
   256MB memory cap; a workshop zip can be 200MB, and the first
-  buffered attempt OOM-killed the backend). Videos pass through or
-  shrink to 1080p; scenes give up their full-resolution main-layer
-  art out of scene.pkg (image streams carved from the .tex files).
-  Palettes derive from the preview GIF with a small GIF decoder,
-  light and dark sets, accent from the project scheme color.
+  buffered attempt OOM-killed the backend). Imports build in a
+  staging folder and swap into place only on success, and extracted
+  files are size-checked against the zip directory, so a truncated
+  upload errors instead of attaching a broken video. Videos attach
+  as-is; scenes give up their full-resolution main-layer art out of
+  scene.pkg (image streams carved from the .tex files). Palettes
+  derive from the preview GIF with a small GIF decoder, light and
+  dark sets, accent from the project scheme color.
+- Oversized videos (over 1920 wide) are flagged needsShrink and
+  queued for server/scripts/wallpaper-shrink-watcher.sh, a host-side
+  systemd timer job that swaps in a 1080p version at the same URL.
+  A 4K encode does not fit the backend's memory cap, and the watcher
+  must itself run under a hard memory limit: on 2026-10-30 an
+  uncapped host encode wedged the 1GB VM hard enough to need a
+  forced reboot from the cloud console. Do not run it uncapped.
 - Hard rules, enforced server-side: the 160px preview is never a
   background (picker thumbnails only), and a display asset under
   1280px wide rejects the import with a plain reason instead of
@@ -175,9 +185,11 @@ new zips by drop or file pick.
   server/utils/bin/ffmpeg on the deployed VM (not committed), or
   WALLPAPER_FFMPEG pointing at one. Without it, scene imports still
   work and video imports say what is missing.
-- Upload size note: the frontend nginx caps request bodies below
-  the biggest workshop zips (~200MB); raising client_max_body_size
-  for the /api/wallpapers/import location is still open.
+- client/nginx.conf: /api/wallpapers/import gets its own location
+  (512m body cap, request buffering off, 900s timeouts), mirroring
+  the backup route; the general /api/ cap stays 100m. On the VM the
+  fixed template was copied into the running frontend container,
+  which regenerates its config from it on start.
 
 ## Planned (not built yet)
 

@@ -143,6 +143,7 @@ export default function WallpaperPicker({ open, onClose, onShowPackage }) {
                 <Box sx={{ display: 'flex', gap: 0.5, mt: 1, flexWrap: 'wrap' }}>
                   <Chip size="small" label={pkg.type === 'video' ? 'Video' : 'Scene'} />
                   <Chip size="small" variant="outlined" label={pkg.owner ? pkg.owner : 'Unassigned'} />
+                  {pkg.needsShrink ? <Chip size="small" variant="outlined" label="HD version processing" /> : null}
                 </Box>
               </CardContent>
               <CardActions sx={{ flexWrap: 'wrap', gap: 0.5 }}>
