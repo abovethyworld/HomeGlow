@@ -123,7 +123,7 @@ function hexToRgba(hex, alpha) {
 function layerFromAppearance(background) {
   if (!background) return null;
   if (background.kind === 'video') return { type: 'video', src: background.src, poster: background.poster || null, accent: null, palette: null };
-  if (background.kind === 'scene') return { type: 'image', src: background.src, accent: null, palette: null };
+  if (background.kind === 'scene') return { type: 'image', src: background.src, poster: background.poster || null, accent: null, palette: null };
   if (background.kind === 'image') return { type: 'image', src: backgroundImageUrl(background.file), accent: null, palette: null };
   return null;
 }
@@ -133,7 +133,7 @@ function layerFromPackage(pkg) {
   const palette = pkg.palette || null;
   const accent = palette?.accent || schemeToCss(pkg.schemeColor);
   if (pkg.type === 'video' && pkg.video) return { type: 'video', src: pkg.video, poster: pkg.preview || null, accent, palette };
-  if (pkg.still || pkg.preview) return { type: 'image', src: pkg.still || pkg.preview, accent, palette };
+  if (pkg.animated || pkg.still || pkg.preview) return { type: 'image', src: pkg.animated || pkg.still || pkg.preview, poster: pkg.still || null, accent, palette };
   return null;
 }
 
@@ -162,6 +162,8 @@ function BoardBackground({ layer, dark }) {
         />
       ) : layer.type === 'video' ? (
         layer.poster ? <img src={layer.poster} alt="" style={mediaStyle} /> : null
+      ) : reduced && layer.poster ? (
+        <img src={layer.poster} alt="" style={mediaStyle} />
       ) : (
         <img src={layer.src} alt="" style={mediaStyle} />
       )}

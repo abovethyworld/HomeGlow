@@ -612,6 +612,13 @@ async function importFromOpenZip(zip, { uploadsDir, ffmpeg }) {
       fs.renameSync(rawStill, path.join(dir, stillName));
       pkg.still = urlFor(stillName);
     }
+    // An animated rebuild dropped in beside the package (animated.webp)
+    // rides along as the scene's playing form; the still stays its poster.
+    const animatedName = findName('animated.webp');
+    if (animatedName) {
+      fs.writeFileSync(path.join(dir, 'animated.webp'), await zip.readEntry(animatedName));
+      pkg.animated = urlFor('animated.webp');
+    }
   }
 
   // Palette from the preview's own pixels; a video with no preview

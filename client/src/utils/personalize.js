@@ -31,8 +31,10 @@ const BACKGROUND_FILE = /^[0-9a-f]{24}\.(jpg|png|webp)$/;
 const BACKGROUND_VIDEO_SRC = /^\/Uploads\/wallpapers\/[0-9]+\/[A-Za-z0-9._-]+$/;
 const BACKGROUND_VIDEO_FILE = /\.(mp4|webm)$/i;
 const BACKGROUND_POSTER_FILE = /\.(gif|jpg|png|webp)$/i;
-// A scene wallpaper's still (its animated preview), for members whose
-// wallpaper is not a video. Package folders may be workshop ids or slugs.
+// A scene wallpaper's animated rebuild (or, before one exists, its
+// full-resolution still), for members whose wallpaper is not a video.
+// Package folders may be workshop ids or slugs. The poster is the
+// scene's still, shown under reduced motion.
 const BACKGROUND_SCENE_SRC = /^\/Uploads\/wallpapers\/[A-Za-z0-9_-]+\/[A-Za-z0-9._-]+$/;
 
 export function normalizeBackground(value) {
@@ -65,7 +67,15 @@ export function normalizeBackground(value) {
     BACKGROUND_SCENE_SRC.test(value.src) &&
     BACKGROUND_POSTER_FILE.test(value.src)
   ) {
-    return { kind: 'scene', src: value.src };
+    const scene = { kind: 'scene', src: value.src };
+    if (
+      typeof value.poster === 'string' &&
+      BACKGROUND_SCENE_SRC.test(value.poster) &&
+      BACKGROUND_POSTER_FILE.test(value.poster)
+    ) {
+      scene.poster = value.poster;
+    }
+    return scene;
   }
   return undefined;
 }
@@ -114,10 +124,12 @@ export function personalizationTokens({ background, cardOpacity }, frameBg) {
     tokens['--hg-bg-video'] = `url("${background.src}")`;
     if (background.poster) tokens['--hg-bg-video-poster'] = `url("${background.poster}")`;
   } else if (background?.kind === 'scene') {
-    // A scene wallpaper's animated preview, painted by the
-    // SceneBackground layer behind the widgets.
+    // A scene wallpaper's animated rebuild, painted by the
+    // SceneBackground layer behind the widgets. Its still rides
+    // along as the poster for reduced motion.
     tokens['--hg-page-image'] = 'none';
     tokens['--hg-bg-scene'] = `url("${background.src}")`;
+    if (background.poster) tokens['--hg-bg-scene-poster'] = `url("${background.poster}")`;
   }
   if (typeof cardOpacity === 'number' && cardOpacity < 1) {
     const rgba = parseColor(frameBg);

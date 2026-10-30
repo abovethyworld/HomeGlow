@@ -87,4 +87,37 @@ describe('scene backgrounds', () => {
     expect(tokens['--hg-bg-scene']).toBe('url("/Uploads/wallpapers/2984957363/preview.gif")');
     expect(tokens['--hg-page-image']).toBe('none');
   });
+
+  it('accepts an animated rebuild with the still as its poster', () => {
+    expect(normalizeBackground({
+      kind: 'scene',
+      src: '/Uploads/wallpapers/2984957363/animated.webp',
+      poster: '/Uploads/wallpapers/2984957363/still.jpg',
+    })).toEqual({
+      kind: 'scene',
+      src: '/Uploads/wallpapers/2984957363/animated.webp',
+      poster: '/Uploads/wallpapers/2984957363/still.jpg',
+    });
+  });
+
+  it('drops a scene poster that is not a wallpaper package file', () => {
+    expect(normalizeBackground({
+      kind: 'scene',
+      src: '/Uploads/wallpapers/2984957363/animated.webp',
+      poster: 'https://example.com/x.jpg',
+    })).toEqual({ kind: 'scene', src: '/Uploads/wallpapers/2984957363/animated.webp' });
+  });
+
+  it('hands the scene poster to the SceneBackground layer', () => {
+    const tokens = personalizationTokens({
+      background: {
+        kind: 'scene',
+        src: '/Uploads/wallpapers/2984957363/animated.webp',
+        poster: '/Uploads/wallpapers/2984957363/still.jpg',
+      },
+      cardOpacity: 1,
+    }, '#ffffff');
+    expect(tokens['--hg-bg-scene']).toBe('url("/Uploads/wallpapers/2984957363/animated.webp")');
+    expect(tokens['--hg-bg-scene-poster']).toBe('url("/Uploads/wallpapers/2984957363/still.jpg")');
+  });
 });

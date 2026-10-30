@@ -6,6 +6,31 @@ It is the record we will share with the HomeGlow project when the time comes.
 
 ## Shipped
 
+### Animated scene wallpapers: rebuilds with still posters — 2026-10-30
+
+- What: a scene wallpaper package can carry an animated rebuild
+  (`animated.webp` beside its still). The scene personalization
+  background gains an optional poster: the switcher, the wallpaper
+  assign route, and the /board layers all prefer the animated file
+  and keep the scene's full-resolution still as its poster, which
+  is what reduced-motion displays get. The importer passes an
+  `animated.webp` dropped in a scene zip through to the package
+  record. The two scene wallpapers on this board (Elden Ring,
+  Sleep Token Fallen Leaves) gained 1920x1080, 12 fps, 6-second
+  seamless-loop rebuilds composited from each scene's own
+  full-resolution art with particle layers approximating the
+  original presets (falling leaves, fog, light shafts, and a
+  starfield for one; falling leaves and rising embers for the
+  other). Shader effects (foliage sway, water flow, shine) are
+  approximated or dropped, and audio-reactive parts stay out, as
+  the scene rebuild verdict recorded.
+- Why: scene wallpapers stood still. The packages' only animated
+  asset is a 160px preview that can never be a background, so the
+  scenes needed a playing form of their own at display size.
+- Upstream idea: scene packages with a full-size animated form
+  plus a still poster, so reduced-motion and slow displays get
+  the still and everyone else gets the scene alive.
+
 ### Device setups: named configurations, defaults, and profile links — 2026-10-30
 
 - What: a device's tabs/widgets configuration can be saved under a
