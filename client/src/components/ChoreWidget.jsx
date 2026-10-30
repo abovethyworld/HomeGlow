@@ -75,6 +75,8 @@ const WEEK_DAYS = 7;
 const DEFAULT_HIDDEN_USER_IDS = Object.freeze([]);
 
 const USERS_UPDATED_EVENT = 'homeglow:users-updated';
+const DEVICE_SETTINGS_UPDATED_EVENT = 'homeglow:device-settings-updated';
+const DEVICE_CONFIG_UPDATED_EVENT = 'homeglow:device-config-updated';
 
 // Format an 'HH:MM' 24h string for display. Goes through the date seam so a
 // locale on a 24-hour clock renders '15:00' instead of '3:00 PM'.
@@ -211,44 +213,62 @@ const ChoreWidget = ({ refreshNonce = 0, hiddenControls = [] }) => {
     fetchData();
   }, []);
 
-  useEffect(() => {
-    const loadDeviceWidgetSettings = async () => {
-      let adopted = null;
-      try {
-        const response = await axios.get(`${API_DEVICE_URL}/settings`);
-        const choreSettings = response.data?.choreWidgetSettings;
-        adopted = {
-          showBonusChores: choreSettings && typeof choreSettings.showBonusChores === 'boolean'
-            ? choreSettings.showBonusChores
-            : DEFAULT_SHOW_BONUS_CHORES,
-          soundEnabled: choreSettings && typeof choreSettings.soundEnabled === 'boolean'
-            ? choreSettings.soundEnabled
-            : DEFAULT_SOUND_ENABLED,
-          // Coerce here so a JSON-round-tripped string id still matches later.
-          hiddenUserIds: choreSettings && Array.isArray(choreSettings.hiddenUserIds)
-            ? choreSettings.hiddenUserIds.map((id) => Number(id)).filter((id) => Number.isFinite(id))
-            : DEFAULT_HIDDEN_USER_IDS,
-          showWeek: choreSettings && typeof choreSettings.showWeek === 'boolean'
-            ? choreSettings.showWeek
-            : DEFAULT_SHOW_WEEK,
-        };
-        setShowBonusChores(adopted.showBonusChores);
-        setSoundEnabled(adopted.soundEnabled);
-        setHiddenUserIds(adopted.hiddenUserIds);
-        setShowWeek(adopted.showWeek);
-      } catch (error) {
-        console.error('Error loading chore widget settings:', error);
-      } finally {
-        // Null on failure: the component is still holding its own defaults, and
-        // persisting those would replace whatever the server has.
-        loadedSettingsRef.current = adopted;
-        // Set regardless, so a failed load renders the widget instead of hanging.
-        setDeviceSettingsLoaded(true);
-      }
-    };
-
-    void loadDeviceWidgetSettings();
+  const loadDeviceWidgetSettings = useCallback(async () => {
+    let adopted = null;
+    try {
+      const response = await axios.get(`${API_DEVICE_URL}/settings`);
+      const choreSettings = response.data?.choreWidgetSettings;
+      adopted = {
+        showBonusChores: choreSettings && typeof choreSettings.showBonusChores === 'boolean'
+          ? choreSettings.showBonusChores
+          : DEFAULT_SHOW_BONUS_CHORES,
+        soundEnabled: choreSettings && typeof choreSettings.soundEnabled === 'boolean'
+          ? choreSettings.soundEnabled
+          : DEFAULT_SOUND_ENABLED,
+        // Coerce here so a JSON-round-tripped string id still matches later.
+        hiddenUserIds: choreSettings && Array.isArray(choreSettings.hiddenUserIds)
+          ? choreSettings.hiddenUserIds.map((id) => Number(id)).filter((id) => Number.isFinite(id))
+          : DEFAULT_HIDDEN_USER_IDS,
+        showWeek: choreSettings && typeof choreSettings.showWeek === 'boolean'
+          ? choreSettings.showWeek
+          : DEFAULT_SHOW_WEEK,
+      };
+      setShowBonusChores(adopted.showBonusChores);
+      setSoundEnabled(adopted.soundEnabled);
+      setHiddenUserIds(adopted.hiddenUserIds);
+      setShowWeek(adopted.showWeek);
+    } catch (error) {
+      console.error('Error loading chore widget settings:', error);
+    } finally {
+      // Null on failure: the component is still holding its own defaults, and
+      // persisting those would replace whatever the server has.
+      loadedSettingsRef.current = adopted;
+      // Set regardless, so a failed load renders the widget instead of hanging.
+      setDeviceSettingsLoaded(true);
+    }
   }, [API_DEVICE_URL]);
+
+  useEffect(() => {
+    void loadDeviceWidgetSettings();
+  }, [loadDeviceWidgetSettings]);
+
+  // A profile tap can rewrite this device's settings underneath the
+  // widget: a linked setup apply replaces the chore settings block
+  // (which members are hidden, bonus chores, sounds) along with the
+  // tabs. The widget stays mounted across that swap, so without a
+  // reload it keeps showing the previous profile's chore view until
+  // the page is refreshed. Setup applies fire the config event and
+  // appearance saves fire the settings event; either can carry a
+  // new block, so reload on both.
+  useEffect(() => {
+    const reload = () => { void loadDeviceWidgetSettings(); };
+    window.addEventListener(DEVICE_SETTINGS_UPDATED_EVENT, reload);
+    window.addEventListener(DEVICE_CONFIG_UPDATED_EVENT, reload);
+    return () => {
+      window.removeEventListener(DEVICE_SETTINGS_UPDATED_EVENT, reload);
+      window.removeEventListener(DEVICE_CONFIG_UPDATED_EVENT, reload);
+    };
+  }, [loadDeviceWidgetSettings]);
 
   // Auto/manual refresh: WidgetContainer's countdown ring owns the schedule
   // and bumps refreshNonce; refetch in place instead of remounting.
