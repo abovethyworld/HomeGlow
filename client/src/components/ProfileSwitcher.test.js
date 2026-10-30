@@ -31,6 +31,21 @@ describe('ProfileSwitcher layout', () => {
     expect(SWITCHER).toContain("justifyContent: 'flex-end'");
   });
 
+  it('shows members as photo circles from their profile pictures, initial as fallback', () => {
+    expect(SWITCHER).toContain('/Uploads/users/');
+    expect(SWITCHER).toContain('profilePhotoUrl');
+    expect(SWITCHER).toContain('<Avatar');
+    expect(SWITCHER).toContain('entry.user.username.charAt(0)');
+  });
+
+  it('fades out with the idle fade, staying mounted so waking never shifts the layout', () => {
+    expect(SWITCHER).toContain('faded = false');
+    expect(SWITCHER).toContain("opacity: faded ? 0 : 1");
+    expect(SWITCHER).toContain("pointerEvents: faded ? 'none' : 'auto'");
+    expect(APP).toContain('faded={dashboardIdle}');
+    expect(APP).toContain('idleFaded={dashboardIdle}');
+  });
+
   it('renders before the widget layouts in app.jsx, so widgets start below the row', () => {
     const switcherAt = APP.indexOf('<ProfileSwitcher');
     expect(switcherAt).toBeGreaterThan(-1);
