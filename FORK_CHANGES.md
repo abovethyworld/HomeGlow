@@ -6,6 +6,24 @@ It is the record we will share with the HomeGlow project when the time comes.
 
 ## Shipped
 
+### Photo profile circles + idle fade to the wallpaper — 2026-10-30
+
+- What: the dashboard profile switcher shows each member as a round
+  photo circle (their HomeGlow profile picture, initial as fallback)
+  with their name under it, instead of a text chip. Photos live
+  server-side as the users' profile pictures, so every display shows
+  them, and the chore widget's avatars pick them up too.
+- Idle fade: after 2 minutes with no tap, click, or key press on a
+  desktop display, the widget grid, the profile row, and the dock
+  fade out, leaving only the animated wallpaper, screensaver style.
+  Any activity brings everything back. Desktop only, suspended while
+  Admin or the built-in screensaver owns the screen. The timer is
+  the dock's idle timer; the timeout lives in utils/idleFade.js.
+- client/src/components/ProfileSwitcher.jsx (photo circles, faded
+  prop), client/src/app.jsx (idle state + wiring), client/src/
+  components/WidgetContainer.jsx (grid fade), client/src/utils/
+  idleFade.js + tests.
+
 ### Profile switcher: its own row, not an overlay — 2026-10-30
 
 - What: the dashboard ProfileSwitcher no longer floats fixed at the

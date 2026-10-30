@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { Box, Button } from '@mui/material';
+import { Avatar, Box, Button, Typography } from '@mui/material';
 import { API_BASE_URL } from '../utils/apiConfig.js';
 import { getDeviceApiBase } from '../utils/deviceName.js';
 import { saveAppearanceFields } from '../utils/appearanceSave.js';
@@ -38,7 +38,17 @@ function backgroundFor(pkg) {
   return null;
 }
 
-export default function ProfileSwitcher({ appearance }) {
+// A member's profile photo, served the same way the chore widget
+// serves it (users.profile_picture relative to /Uploads/users/, or a
+// data URL). Null when the member has no photo; the circle then falls
+// back to their initial.
+function profilePhotoUrl(user) {
+  const pic = user?.profile_picture;
+  if (!pic) return null;
+  return pic.startsWith('data:') ? pic : `${API_BASE_URL}/Uploads/users/${pic}`;
+}
+
+export default function ProfileSwitcher({ appearance, faded = false }) {
   const [users, setUsers] = useState([]);
   const [packages, setPackages] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -159,6 +169,12 @@ export default function ProfileSwitcher({ appearance }) {
         justifyContent: 'flex-end',
         px: 1.5,
         pt: 1.5,
+        // The idle fade (utils/idleFade.js): the row melts away with
+        // the widgets, leaving only the wallpaper. It stays mounted
+        // and keeps its height, so waking never shifts the layout.
+        opacity: faded ? 0 : 1,
+        pointerEvents: faded ? 'none' : 'auto',
+        transition: 'opacity 600ms ease',
       }}
     >
       <Button disabled={busy} onClick={() => setPickerOpen(true)} sx={chipSx(false, null)}>
@@ -167,16 +183,59 @@ export default function ProfileSwitcher({ appearance }) {
       <Button disabled={busy} onClick={() => apply(null)} sx={chipSx(activeId === null, null)}>
         Default
       </Button>
-      {members.map((entry) => (
-        <Button
-          key={entry.user.id}
-          disabled={busy}
-          onClick={() => apply(entry)}
-          sx={chipSx(activeId === entry.user.id, entry.pkg.palette?.accent || null)}
-        >
-          {entry.user.username}
-        </Button>
-      ))}
+      {members.map((entry) => {
+        const isActive = activeId === entry.user.id;
+        const accent = entry.pkg.palette?.accent || null;
+        return (
+          <Button
+            key={entry.user.id}
+            disabled={busy}
+            onClick={() => apply(entry)}
+            sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 0.25,
+              minWidth: 56,
+              px: 1,
+              py: 0.5,
+              borderRadius: 3,
+              textTransform: 'none',
+              '&:hover': { backgroundColor: 'transparent' },
+            }}
+          >
+            <Avatar
+              src={profilePhotoUrl(entry.user) || undefined}
+              alt={entry.user.username}
+              sx={{
+                width: 44,
+                height: 44,
+                bgcolor: accent || 'rgba(30, 30, 34, 0.72)',
+                color: '#fff',
+                fontSize: 18,
+                fontWeight: 700,
+                opacity: isActive ? 1 : 0.85,
+                boxShadow: isActive
+                  ? '0 0 0 2px #fff'
+                  : '0 0 0 1px var(--hg-white-30)',
+              }}
+            >
+              {entry.user.username.charAt(0)}
+            </Avatar>
+            <Typography
+              variant="caption"
+              sx={{
+                color: '#fff',
+                fontSize: 11,
+                lineHeight: 1,
+                textShadow: '0 1px 3px var(--hg-black-70)',
+              }}
+            >
+              {entry.user.username}
+            </Typography>
+          </Button>
+        );
+      })}
       <WallpaperPicker
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}

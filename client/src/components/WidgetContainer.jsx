@@ -111,6 +111,9 @@ const WidgetContainer = ({
   expandSettings = null,
   // Told 'normal', 'half' or 'full' whenever the expanded size changes.
   onExpandedSizeChange,
+  // Idle fade (fork, utils/idleFade.js): true melts the grid away,
+  // leaving only this container's wallpaper layers painted.
+  idleFaded = false,
 }) => {
   const { t } = useTranslation('common');
   const API_DEVICE_URL = getDeviceApiBase(API_BASE_URL);
@@ -880,6 +883,15 @@ const WidgetContainer = ({
           zIndex: 2,
           transition: 'all 100ms ease',
         },
+        // Idle fade (fork, utils/idleFade.js): the grid melts away to
+        // just the wallpaper layers, which are siblings of the grid in
+        // this container and stay painted. Pointer events go with the
+        // grid, so the waking tap lands on the page, not on a widget.
+        '& .react-grid-layout': {
+          transition: 'opacity 600ms ease',
+          ...(idleFaded ? { opacity: 0, pointerEvents: 'none' } : null),
+        },
+        ...(idleFaded ? { '& .expand-backdrop': { opacity: '0 !important' } } : null),
       }}
     >
       <ThemeAmbience />

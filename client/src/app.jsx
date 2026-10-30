@@ -26,6 +26,7 @@ import {
   dockHideTimeoutMs,
   wantsActivityListeners,
 } from './utils/dockIdleHide.js';
+import { idleFadeTimeoutMs } from './utils/idleFade.js';
 import {
   BLOCK_PINCH_TOUCH_ACTION,
   attachTwoFingerSwipe,
@@ -1030,6 +1031,30 @@ const App = () => {
     dockIdleRef.current?.setSuspended(showAdminPanel);
   }, [showAdminPanel]);
 
+  // Idle fade (fork, utils/idleFade.js): after 2 idle minutes the whole
+  // dashboard melts away to just the animated wallpaper, screensaver
+  // style, and any activity brings it back. Same timer machinery as
+  // the dock hide. Suspended while Admin is open or the real
+  // screensaver is up, since both own the screen then.
+  const fadeHideMs = idleFadeTimeoutMs({ isMobile });
+  const [dashboardIdle, setDashboardIdle] = useState(false);
+  const fadeIdleRef = useRef(null);
+
+  useEffect(() => {
+    const timer = createDockIdleTimer({ timeoutMs: fadeHideMs, onChange: setDashboardIdle });
+    fadeIdleRef.current = timer;
+    timer.setSuspended(showAdminPanelRef.current || screensaverActiveRef.current);
+    return () => {
+      timer.dispose();
+      fadeIdleRef.current = null;
+      setDashboardIdle(false);
+    };
+  }, [fadeHideMs]);
+
+  useEffect(() => {
+    fadeIdleRef.current?.setSuspended(showAdminPanel || screensaverActive);
+  }, [showAdminPanel, screensaverActive]);
+
   // Dimming pauses while Admin is open, like the dock idle timer above:
   // Admin must stay readable, and the idle clock restarts from closing.
   useEffect(() => {
@@ -1077,13 +1102,14 @@ const App = () => {
     isMobile,
     screensaverEnabled: screensaverSettings.enabled,
     dockHideMs,
-  });
+  }) || fadeHideMs != null;
 
   useEffect(() => {
     if (!listenForActivity) return undefined;
 
     const handleActivity = () => {
       dockIdleRef.current?.poke();
+      fadeIdleRef.current?.poke();
       if (!screensaverSettingsRef.current.enabled || screensaverActiveRef.current) return;
       lastActivityRef.current = Date.now();
       startInactivityTimer();
@@ -1524,7 +1550,7 @@ const App = () => {
         {widgetsLocked && <UpdateIndicator />}
         {/* Per-member look for this display: chips that swap the
             background and palette to one member's wallpaper. */}
-        {!showAdminPanel && !screensaverActive && <ProfileSwitcher appearance={appearance} />}
+        {!showAdminPanel && !screensaverActive && <ProfileSwitcher appearance={appearance} faded={dashboardIdle} />}
         {/* Move/Resize ends here, not back in the dock (issue #333). */}
         {!isMobile && !widgetsLocked && !showAdminPanel && !screensaverActive && (
           <SaveLayoutButton onSave={toggleWidgetsLock} />
@@ -1543,6 +1569,7 @@ const App = () => {
             deviceWidgetSettings={widgetSettings}
             devicePluginSettings={pluginSettings}
             isActive={widgetsActive}
+            idleFaded={dashboardIdle}
             expandSettings={screensaverSettings}
             onExpandedSizeChange={setExpandedWidgetSize}
           />
@@ -1656,7 +1683,7 @@ const App = () => {
         onOpenSettings={toggleAdminPanel}
         onRefresh={handlePageRefresh}
         // A widget filling the whole page covers the dock too.
-        hidden={dockHidden || expandedWidgetSize === 'full'}
+        hidden={dockHidden || dashboardIdle || expandedWidgetSize === 'full'}
         theme={displayTheme}
         themeMode={themeMode}
         screensaverCountdown={
