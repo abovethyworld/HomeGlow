@@ -6,6 +6,24 @@ It is the record we will share with the HomeGlow project when the time comes.
 
 ## Shipped
 
+### Wake picker: waking the idle wallpaper offers the profiles — 2026-10-30
+
+- What: waking the idle-faded dashboard no longer lands on the
+  dashboard (never a default page). The wake cycle in utils/idleFade.js
+  has three phases: active, idle (wallpaper only after 2 minutes),
+  and picker. The first activity on the idle wallpaper opens the
+  picker: one big photo circle per family member, name under it,
+  over the wallpaper, and nothing else (no Default option). Tapping
+  a circle loads that member's side through the profile switcher's
+  own apply path (the pick travels as the homeglow:wake-profile-pick
+  window event), and the dashboard returns. Activity in the picker
+  only holds it open; after 30 still seconds it drifts back to the
+  wallpaper. With no members to pick, the picker skips itself.
+- client/src/utils/idleFade.js (createIdleWakeCycle, picker timeout,
+  pick event) + tests, client/src/components/WakePicker.jsx + tests,
+  client/src/app.jsx (phase state + wiring), client/src/components/
+  ProfileSwitcher.jsx (exports its member helpers, hears picks).
+
 ### Photo profile circles + idle fade to the wallpaper — 2026-10-30
 
 - What: the dashboard profile switcher shows each member as a round
