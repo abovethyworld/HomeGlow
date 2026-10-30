@@ -4,10 +4,17 @@ import { Box, Button, CircularProgress, Typography } from '@mui/material';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { API_BASE_URL } from '../utils/apiConfig.js';
 import { choreDays, dueOn } from '../utils/choreDays.js';
+import { APPEARANCE_SETTING_KEY, normalizeHouseholdAppearance } from '../utils/appearance.js';
+import { backgroundImageUrl } from '../utils/personalize.js';
 
 // Family board, step 1: Today-only overview with live data, plus a read-only
 // per-profile list. Tap-to-complete arrived in step 2; the 60s idle return
-// arrived in step 3. Theme-neutral styling on purpose: themes land in step 4.
+// arrived in step 3. Step 4: per-member backgrounds and accents. The
+// overview wears the household's default background (the same appearance
+// background the dashboard uses); an open profile wears that member's
+// wallpaper from the Wallpaper Engine plugin's package index, with the
+// wallpaper's own scheme color as the view's accent. Scene wallpapers
+// stand in with their animated preview until their rebuilds land.
 
 const boardTheme = createTheme();
 
@@ -82,6 +89,73 @@ function eventTimeLabel(event) {
   return formatTime(event.start);
 }
 
+// A Wallpaper Engine scheme color ("1 0.80784 0") as CSS, plus the text
+// color that stays readable on it.
+function schemeToCss(scheme) {
+  if (typeof scheme !== 'string') return null;
+  const parts = scheme.trim().split(/\s+/).map(Number);
+  if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return null;
+  const [r, g, b] = parts.map((n) => Math.round(Math.min(1, Math.max(0, n)) * 255));
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+function textOn(cssColor) {
+  const match = /^rgb\((\d+), (\d+), (\d+)\)$/.exec(cssColor || '');
+  if (!match) return '#fff';
+  const luminance = (0.299 * Number(match[1]) + 0.587 * Number(match[2]) + 0.114 * Number(match[3])) / 255;
+  return luminance > 0.65 ? '#1a1a1a' : '#fff';
+}
+
+// The layer form of a background: the household appearance background, or
+// one member's wallpaper package (video plays; a scene stands in with its
+// animated preview).
+function layerFromAppearance(background) {
+  if (!background) return null;
+  if (background.kind === 'video') return { type: 'video', src: background.src, poster: background.poster || null, accent: null };
+  if (background.kind === 'image') return { type: 'image', src: backgroundImageUrl(background.file), accent: null };
+  return null;
+}
+
+function layerFromPackage(pkg) {
+  if (!pkg) return null;
+  const accent = schemeToCss(pkg.schemeColor);
+  if (pkg.type === 'video' && pkg.video) return { type: 'video', src: pkg.video, poster: pkg.preview || null, accent };
+  if (pkg.preview) return { type: 'image', src: pkg.preview, accent };
+  return null;
+}
+
+// Full-screen background layer with a light scrim over it, so the board's
+// dark text and solid buttons stay readable over any wallpaper.
+function BoardBackground({ layer }) {
+  if (!layer) return null;
+  const mediaStyle = {
+    position: 'fixed', inset: 0, width: '100vw', height: '100%',
+    objectFit: 'cover', pointerEvents: 'none',
+  };
+  const reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  return (
+    <Box aria-hidden="true" sx={{ position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none' }}>
+      {layer.type === 'video' && !reduced ? (
+        <video
+          key={layer.src}
+          src={layer.src}
+          poster={layer.poster || undefined}
+          autoPlay
+          muted
+          loop
+          playsInline
+          style={mediaStyle}
+        />
+      ) : layer.type === 'video' ? (
+        layer.poster ? <img src={layer.poster} alt="" style={mediaStyle} /> : null
+      ) : (
+        <img src={layer.src} alt="" style={mediaStyle} />
+      )}
+      <Box sx={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(250, 250, 252, 0.60)' }} />
+    </Box>
+  );
+}
+
 export default function FamilyBoard() {
   const [view, setView] = useState({ name: 'overview' });
   const [users, setUsers] = useState([]);
@@ -94,6 +168,7 @@ export default function FamilyBoard() {
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState({});
   const [actionError, setActionError] = useState(null);
+  const [wallpapers, setWallpapers] = useState({ byUser: {}, defaultLayer: null });
 
   const key = useMemo(() => todayKey(), []);
 
@@ -102,7 +177,7 @@ export default function FamilyBoard() {
     start.setHours(0, 0, 0, 0);
     const end = new Date(start);
     end.setDate(end.getDate() + 1);
-    const [usersRes, schedulesRes, historyRes, eventsRes, weatherRes, patternRes] = await Promise.allSettled([
+    const [usersRes, schedulesRes, historyRes, eventsRes, weatherRes, patternRes, appearanceRes, wallpaperRes] = await Promise.allSettled([
       axios.get(`${API_BASE_URL}/api/users`),
       axios.get(`${API_BASE_URL}/api/chore-schedules`, { params: { visible: true } }),
       axios.get(`${API_BASE_URL}/api/chore-history`, { params: { date: key } }),
@@ -115,6 +190,12 @@ export default function FamilyBoard() {
       // Alternating pattern for pattern-owned schedules; without it the
       // board behaves exactly as before.
       axios.get(`${API_BASE_URL}/api/household-pattern`),
+      // Step 4: the household's default background, the same appearance
+      // the dashboard wears.
+      axios.get(`${API_BASE_URL}/api/settings`, { params: { keys: APPEARANCE_SETTING_KEY } }),
+      // Step 4: per-member wallpapers, from the Wallpaper Engine plugin's
+      // own storage (packages plus the profile:<userId> picks).
+      axios.get(`${API_BASE_URL}/api/plugin/v1/storage/wallpaper-engine`),
     ]);
     // The bonus pseudo-user (id 0) never renders as a profile.
     if (usersRes.status === 'fulfilled' && Array.isArray(usersRes.value.data)) setUsers(usersRes.value.data.filter((u) => u.id !== 0));
@@ -131,6 +212,27 @@ export default function FamilyBoard() {
     else setWeather(null);
     if (patternRes.status === 'fulfilled' && patternRes.value.data) setPattern(patternRes.value.data.pattern ?? null);
     else setPattern(null);
+    {
+      let defaultLayer = null;
+      if (appearanceRes.status === 'fulfilled') {
+        const appearance = normalizeHouseholdAppearance(appearanceRes.value.data?.[APPEARANCE_SETTING_KEY]);
+        defaultLayer = layerFromAppearance(appearance.background);
+      }
+      const byUser = {};
+      if (wallpaperRes.status === 'fulfilled' && wallpaperRes.value.data) {
+        const store = wallpaperRes.value.data;
+        const packages = Array.isArray(store.packages) ? store.packages : [];
+        const byId = new Map(packages.map((pkg) => [String(pkg.id), pkg]));
+        packages.forEach((pkg) => {
+          if (pkg.ownerProfileId != null) byUser[pkg.ownerProfileId] = pkg;
+        });
+        Object.keys(store).forEach((storeKey) => {
+          const match = /^profile:(\d+)$/.exec(storeKey);
+          if (match && byId.has(String(store[storeKey]))) byUser[match[1]] = byId.get(String(store[storeKey]));
+        });
+      }
+      setWallpapers({ byUser, defaultLayer });
+    }
     setLoading(false);
   }, [key]);
 
@@ -192,6 +294,13 @@ export default function FamilyBoard() {
   const profile = view.name === 'profile' ? users.find((u) => u.id === view.userId) : null;
   const profileLeft = profile ? leftByUser.get(profile.id) || [] : [];
 
+  // Step 4: an open profile wears its own wallpaper and accent; the
+  // overview wears the household default. A member with no wallpaper yet
+  // falls back to the default rather than a blank board.
+  const profileLayer = profile ? layerFromPackage(wallpapers.byUser[profile.id]) : null;
+  const activeLayer = profile ? (profileLayer || wallpapers.defaultLayer) : wallpapers.defaultLayer;
+  const profileAccent = profileLayer?.accent || null;
+
   // Today's completions for the open profile, for the Done section and undo.
   const doneRows = useMemo(() => {
     if (!profile) return [];
@@ -232,7 +341,9 @@ export default function FamilyBoard() {
 
   return (
     <ThemeProvider theme={boardTheme}>
-      <Box sx={{ minHeight: '100vh', px: 3, py: 3, boxSizing: 'border-box' }}>
+      <Box sx={{ minHeight: '100vh', px: 3, py: 3, boxSizing: 'border-box', position: 'relative' }}>
+        <BoardBackground layer={activeLayer} />
+        <Box sx={{ position: 'relative', zIndex: 1 }}>
         <Typography sx={{ fontSize: 16, letterSpacing: 3, textTransform: 'uppercase', color: 'text.secondary', mb: 1 }}>
           Eden
         </Typography>
@@ -245,7 +356,7 @@ export default function FamilyBoard() {
             <Button variant="text" onClick={() => setView({ name: 'overview' })} sx={{ fontSize: 20, mb: 2 }}>
               ← Back
             </Button>
-            <Typography variant="h3" sx={{ fontWeight: 700, mb: 1 }}>
+            <Typography variant="h3" sx={{ fontWeight: 700, mb: 1, ...(profileAccent ? { color: profileAccent } : {}) }}>
               {profile.username}
             </Typography>
             <Typography variant="h5" sx={{ mb: 3, color: 'text.secondary' }}>
@@ -264,7 +375,10 @@ export default function FamilyBoard() {
                     variant="contained"
                     disabled={!!pending[s.id]}
                     onClick={() => toggleChore(s.id, profile.id, true)}
-                    sx={{ minHeight: 88, px: 3, justifyContent: 'space-between', textAlign: 'left' }}
+                    sx={{
+                      minHeight: 88, px: 3, justifyContent: 'space-between', textAlign: 'left',
+                      ...(profileAccent ? { backgroundColor: profileAccent, color: textOn(profileAccent), '&:hover': { backgroundColor: profileAccent, filter: 'brightness(1.08)' } } : {}),
+                    }}
                   >
                     <Box>
                       <Typography variant="h5" component="span" sx={{ display: 'block' }}>{s.title}</Typography>
@@ -337,12 +451,16 @@ export default function FamilyBoard() {
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 {users.map((u) => {
                   const left = leftByUser.get(u.id) || [];
+                  const accent = schemeToCss(wallpapers.byUser[u.id]?.schemeColor);
                   return (
                     <Button
                       key={u.id}
                       variant="contained"
                       onClick={() => setView({ name: 'profile', userId: u.id })}
-                      sx={{ minHeight: 88, fontSize: 24, justifyContent: 'space-between', px: 3 }}
+                      sx={{
+                        minHeight: 88, fontSize: 24, justifyContent: 'space-between', px: 3,
+                        ...(accent ? { backgroundColor: accent, color: textOn(accent), '&:hover': { backgroundColor: accent, filter: 'brightness(1.08)' } } : {}),
+                      }}
                     >
                       <span>{u.username}</span>
                       <span>{left.length === 0 ? 'Done' : `${left.length} left`}</span>
@@ -353,6 +471,7 @@ export default function FamilyBoard() {
             )}
           </Box>
         )}
+        </Box>
       </Box>
     </ThemeProvider>
   );
