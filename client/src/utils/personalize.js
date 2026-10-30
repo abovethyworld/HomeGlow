@@ -23,6 +23,14 @@ export const GRADIENT_PRESETS = {
 
 const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
 const BACKGROUND_FILE = /^[0-9a-f]{24}\.(jpg|png|webp)$/;
+// A video background is not an upload: it points at a wallpaper package the
+// Wallpaper Engine plugin imported (uploads/wallpapers/<workshop id>/<file>,
+// served by the /Uploads static root with range support). The poster is a
+// still from the same package, shown until the video can play and standing
+// in for it under reduced motion.
+const BACKGROUND_VIDEO_SRC = /^\/Uploads\/wallpapers\/[0-9]+\/[A-Za-z0-9._-]+$/;
+const BACKGROUND_VIDEO_FILE = /\.(mp4|webm)$/i;
+const BACKGROUND_POSTER_FILE = /\.(gif|jpg|png|webp)$/i;
 
 export function normalizeBackground(value) {
   if (!value || typeof value !== 'object') return undefined;
@@ -32,6 +40,22 @@ export function normalizeBackground(value) {
     return { kind: 'gradient', preset: value.preset };
   }
   if (value.kind === 'image' && BACKGROUND_FILE.test(value.file)) return { kind: 'image', file: value.file };
+  if (
+    value.kind === 'video' &&
+    typeof value.src === 'string' &&
+    BACKGROUND_VIDEO_SRC.test(value.src) &&
+    BACKGROUND_VIDEO_FILE.test(value.src)
+  ) {
+    const video = { kind: 'video', src: value.src };
+    if (
+      typeof value.poster === 'string' &&
+      BACKGROUND_VIDEO_SRC.test(value.poster) &&
+      BACKGROUND_POSTER_FILE.test(value.poster)
+    ) {
+      video.poster = value.poster;
+    }
+    return video;
+  }
   return undefined;
 }
 
@@ -72,6 +96,12 @@ export function personalizationTokens({ background, cardOpacity }, frameBg) {
     tokens['--hg-page-image'] = `url("${backgroundImageUrl(background.file)}")`;
     tokens['--hg-page-image-size'] = 'cover';
     tokens['--hg-page-image-position'] = 'center';
+  } else if (background?.kind === 'video') {
+    // No still paints; the VideoBackground layer reads these two properties
+    // and plays the file behind the widgets (components/VideoBackground.jsx).
+    tokens['--hg-page-image'] = 'none';
+    tokens['--hg-bg-video'] = `url("${background.src}")`;
+    if (background.poster) tokens['--hg-bg-video-poster'] = `url("${background.poster}")`;
   }
   if (typeof cardOpacity === 'number' && cardOpacity < 1) {
     const rgba = parseColor(frameBg);

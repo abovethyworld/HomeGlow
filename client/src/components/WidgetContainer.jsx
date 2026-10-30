@@ -22,6 +22,7 @@ import { readGridMetrics } from '../utils/gridMetrics';
 import { frameDecoration } from '../utils/widgetFrame';
 import FrameOrnaments from './FrameOrnaments';
 import ThemeAmbience from '../themes/engine/ThemeAmbience.jsx';
+import VideoBackground from './VideoBackground.jsx';
 import {
   BUTTON_REVEAL_MS,
   DOUBLE_TAP_MS,
@@ -881,6 +882,9 @@ const WidgetContainer = ({
       }}
     >
       <ThemeAmbience />
+      {/* A personalization video background (kind "video") paints in the
+          same layer as the ambience, under every widget. */}
+      <VideoBackground />
       {/* The dimmed page behind an expanded widget. A tap on it puts the
           widget back. */}
       {expanded && expanded.phase !== 'settle' && (
