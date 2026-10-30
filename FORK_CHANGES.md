@@ -16,6 +16,14 @@ It is the record we will share with the HomeGlow project when the time comes.
   scheme color. The 60s idle return falls back to the default.
   Scene wallpapers stand in with their animated preview GIFs until
   their browser rebuilds land.
+- Palette pass (same night): every package also carries a palette
+  derived from its preview art (average, soft, deep, accent,
+  secondary; the accent is the wallpaper's own scheme color). The
+  board's wash, headings, and buttons draw from the active
+  wallpaper's palette, so the theme follows the wallpaper. The
+  dashboard does the same for the default: setting the Cozy
+  Cottage video as the household background also set the household
+  interface colors from its palette.
 - Why: Gavin's model for the board: one shared default look, and
   every family member gets their own background and theme when
   they open their view.

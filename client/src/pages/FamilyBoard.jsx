@@ -100,10 +100,21 @@ function schemeToCss(scheme) {
 }
 
 function textOn(cssColor) {
-  const match = /^rgb\((\d+), (\d+), (\d+)\)$/.exec(cssColor || '');
+  const match = /^rgb\((\d+), (\d+), (\d+)\)$/.exec(cssColor || '')
+    || /^#([0-9a-f]{6})$/i.exec(cssColor || '');
   if (!match) return '#fff';
-  const luminance = (0.299 * Number(match[1]) + 0.587 * Number(match[2]) + 0.114 * Number(match[3])) / 255;
+  const [r, g, b] = match[0].startsWith('#')
+    ? [parseInt(match[1].slice(0, 2), 16), parseInt(match[1].slice(2, 4), 16), parseInt(match[1].slice(4, 6), 16)]
+    : [Number(match[1]), Number(match[2]), Number(match[3])];
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
   return luminance > 0.65 ? '#1a1a1a' : '#fff';
+}
+
+function hexToRgba(hex, alpha) {
+  const match = /^#([0-9a-f]{6})$/i.exec(hex || '');
+  if (!match) return null;
+  const n = parseInt(match[1], 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
 }
 
 // The layer form of a background: the household appearance background, or
@@ -111,16 +122,17 @@ function textOn(cssColor) {
 // animated preview).
 function layerFromAppearance(background) {
   if (!background) return null;
-  if (background.kind === 'video') return { type: 'video', src: background.src, poster: background.poster || null, accent: null };
-  if (background.kind === 'image') return { type: 'image', src: backgroundImageUrl(background.file), accent: null };
+  if (background.kind === 'video') return { type: 'video', src: background.src, poster: background.poster || null, accent: null, palette: null };
+  if (background.kind === 'image') return { type: 'image', src: backgroundImageUrl(background.file), accent: null, palette: null };
   return null;
 }
 
 function layerFromPackage(pkg) {
   if (!pkg) return null;
-  const accent = schemeToCss(pkg.schemeColor);
-  if (pkg.type === 'video' && pkg.video) return { type: 'video', src: pkg.video, poster: pkg.preview || null, accent };
-  if (pkg.preview) return { type: 'image', src: pkg.preview, accent };
+  const palette = pkg.palette || null;
+  const accent = palette?.accent || schemeToCss(pkg.schemeColor);
+  if (pkg.type === 'video' && pkg.video) return { type: 'video', src: pkg.video, poster: pkg.preview || null, accent, palette };
+  if (pkg.preview) return { type: 'image', src: pkg.preview, accent, palette };
   return null;
 }
 
@@ -151,7 +163,7 @@ function BoardBackground({ layer }) {
       ) : (
         <img src={layer.src} alt="" style={mediaStyle} />
       )}
-      <Box sx={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(250, 250, 252, 0.60)' }} />
+      <Box sx={{ position: 'fixed', inset: 0, backgroundColor: hexToRgba(layer.palette?.soft, 0.66) || 'rgba(250, 250, 252, 0.60)' }} />
     </Box>
   );
 }
@@ -230,6 +242,12 @@ export default function FamilyBoard() {
           const match = /^profile:(\d+)$/.exec(storeKey);
           if (match && byId.has(String(store[storeKey]))) byUser[match[1]] = byId.get(String(store[storeKey]));
         });
+        // The default background themes the overview too: when it is one
+        // of the packages, borrow that package's palette.
+        if (defaultLayer && !defaultLayer.palette) {
+          const host = packages.find((pkg) => pkg.video === defaultLayer.src || pkg.preview === defaultLayer.src);
+          if (host?.palette) defaultLayer = { ...defaultLayer, palette: host.palette };
+        }
       }
       setWallpapers({ byUser, defaultLayer });
     }
@@ -356,7 +374,7 @@ export default function FamilyBoard() {
             <Button variant="text" onClick={() => setView({ name: 'overview' })} sx={{ fontSize: 20, mb: 2 }}>
               ← Back
             </Button>
-            <Typography variant="h3" sx={{ fontWeight: 700, mb: 1, ...(profileAccent ? { color: profileAccent } : {}) }}>
+            <Typography variant="h3" sx={{ fontWeight: 700, mb: 1, ...(profileLayer?.palette?.deep || profileAccent ? { color: profileLayer?.palette?.deep || profileAccent } : {}) }}>
               {profile.username}
             </Typography>
             <Typography variant="h5" sx={{ mb: 3, color: 'text.secondary' }}>
@@ -451,7 +469,7 @@ export default function FamilyBoard() {
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 {users.map((u) => {
                   const left = leftByUser.get(u.id) || [];
-                  const accent = schemeToCss(wallpapers.byUser[u.id]?.schemeColor);
+                  const accent = wallpapers.byUser[u.id]?.palette?.accent || schemeToCss(wallpapers.byUser[u.id]?.schemeColor);
                   return (
                     <Button
                       key={u.id}
