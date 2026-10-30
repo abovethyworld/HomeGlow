@@ -6,6 +6,18 @@ It is the record we will share with the HomeGlow project when the time comes.
 
 ## Shipped
 
+### Profile switcher: its own row, not an overlay — 2026-10-30
+
+- What: the dashboard ProfileSwitcher no longer floats fixed at the
+  top-right corner (zIndex 1200), where it covered the first widget
+  row's header controls, including the settings gears. It renders in
+  normal flow as its own row at the top of the dashboard, so the
+  widget grid starts below it. On narrow screens the chips wrap
+  inside the row, the row grows taller, and the grid moves down by
+  the same amount.
+- client/src/components/ProfileSwitcher.jsx (root Box positioning),
+  plus a source-level test in ProfileSwitcher.test.js.
+
 ### Animated scene wallpapers: rebuilds with still posters — 2026-10-30
 
 - What: a scene wallpaper package can carry an animated rebuild
