@@ -12,6 +12,49 @@ for this household say so and carry no upstream idea.
 
 ## Shipped
 
+### Apple calendar writing: iCloud sources can create, edit, and delete events — 2026-10-30
+
+- What: Apple (CalDAV) sources reach parity with Google in the event
+  editor. The source event routes (POST/PATCH/DELETE
+  /api/calendar-sources/:id/events) dispatch on source type instead of
+  refusing non-Google sources. For Apple sources, a CalDAV write side
+  beside the read path (server/services/appleCalDAV.js) creates an
+  event by PUTting a new .ics resource with a fresh UUID and
+  If-None-Match: *, and edits or deletes by first locating the event's
+  resource and etag with the same time-range REPORT sync uses,
+  matching the UID client-side, then PUT or DELETE with If-Match.
+  After a write the source syncs, exactly like the Google path, so
+  the cache stays the read model. Scope is whole events: title,
+  description, location, all-day or timed, plus an optional simple
+  RRULE (such as FREQ=YEARLY) at the API level; no per-instance
+  exceptions on recurring events. The editor treats Google and Apple
+  sources as writable; the Google event color picker stays
+  Google-only. Built on the branch feat/apple-calendar-write with the
+  full suites green (server 705 tests, client 902, including 13 new
+  write-path tests against a mocked CalDAV server). A live test
+  against a throwaway iCloud calendar comes before it runs against a
+  real calendar here.
+- Why: a family on iCloud could see its calendar on the board but
+  never add to it from the board. Holidays and birthdays were the
+  standing example: a fixed set of yearly events that had to be added
+  from a phone, or by a separate helper outside HomeGlow entirely.
+- Upstream idea: Apple sources reach parity with Google sources in
+  the event editor, following the platform's own rules. The source's
+  stored app password is decrypted only inside the route and sent
+  only to that source's iCloud URL (the route refuses a source whose
+  URL is not an iCloud host), writes flow through sync, and no write
+  is retried blindly: a stale etag surfaces as a 412 "changed
+  somewhere else" message. One iCloud behavior worth knowing: an
+  event UID may live in only one calendar per account, and a
+  cross-calendar copy is refused with a bare 412, so moving an event
+  between calendars is delete-then-add.
+- Touches: server/services/appleCalDAV.js (buildEventIcs,
+  mergeEventIcs, findEventResource, createEvent, updateEvent,
+  deleteEvent) + tests in server/tests/appleCalDAV.test.js,
+  server/index.js (loadWritableCalendarSource, loadAppleCredentials,
+  the three event routes), client/src/components/CalendarWidget.jsx
+  (writable-source gating, color picker Google-only).
+
 ### Wake picker: waking the idle wallpaper offers the profiles — 2026-10-30
 
 - What: the dashboard has a three-phase wake cycle. Active shows the
@@ -423,24 +466,7 @@ Sync rules that merge established:
 
 ## Planned (not built yet)
 
-### Proposal for upstream: Apple calendar event creation — 2026-10-30
-
-- What: event creation and editing for Apple (CalDAV) calendar
-  sources, matching what Google sources already have. Eden's Apple
-  integration syncs events in but offers no way to create one; the
-  only create/edit routes load a Google source. The write side would
-  PUT events to the calendar's CalDAV collection using the connection
-  the source already holds, then let the normal sync pull the result
-  into the cache like any other event.
-- Why: a family on iCloud can see its calendar on the board but can
-  never add to it from the board. Holidays and birthdays are the
-  standing example here: a fixed set of yearly events that had to be
-  added from a phone instead.
-- Why upstream and not this fork: the change sits in credential
-  handling and writes to a family's real calendar, the area upstream
-  is most careful with, and a private version would diverge from
-  upstream in a core service at every sync. Built upstream, every
-  iCloud household gets it and it stays maintained. This household's
-  own need is covered in the meantime outside HomeGlow entirely.
-- Upstream idea: Apple sources reach parity with Google sources in
-  the event editor.
+Nothing here right now. The Apple calendar event creation proposal
+that sat in this section was built in this fork on 2026-10-30; it is
+the first entry under Shipped, and it goes upstream as its own piece
+at share time.

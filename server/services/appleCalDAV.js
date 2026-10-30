@@ -1,4 +1,5 @@
 const axios = require('axios');
+const crypto = require('crypto');
 const ICAL = require('ical.js');
 const { XMLParser } = require('fast-xml-parser');
 
@@ -508,9 +509,330 @@ function subtractOneDay(date) {
   return d;
 }
 
+// ---------------------------------------------------------------------------
+// CalDAV write flows
+//
+// Create / update / delete for one event resource, mirroring the Google write
+// path's contract: whole events only, the server's answer surfaces to the
+// caller, and no write is ever retried blindly. Only the source's own stored
+// credentials are used, and only against that source's calendar URL; the
+// routes own that check, exactly as they do for the read path.
+//
+// Update and delete first locate the event's resource (href + etag) with the
+// same time-range REPORT the read path uses, and match the UID client-side:
+// iCloud answers UID-filtered CalDAV queries with a bare 412, so the UID is
+// never sent as a query filter.
+// ---------------------------------------------------------------------------
+
+function httpError(status, message) {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+}
+
+const toYmd = (value) => (typeof value === 'string' ? value.slice(0, 10) : new Date(value).toISOString().slice(0, 10));
+
+// The calendar day after a 'YYYY-MM-DD', with no time zone in play.
+function nextDay(ymd) {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
+}
+
+// An RRULE value ('FREQ=YEARLY'), with or without the 'RRULE:' prefix.
+// undefined leaves recurrence alone, null/'' clears it, and anything that is
+// not a plain FREQ rule is rejected: v1 writes whole events with at most a
+// simple recurrence.
+function normalizeRecurrence(value) {
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return null;
+  const rule = String(value).trim().replace(/^RRULE:/i, '');
+  if (!/^FREQ=(YEARLY|MONTHLY|WEEKLY|DAILY)(;.+)?$/i.test(rule)) {
+    throw httpError(400, 'recurrence must be a simple RRULE such as FREQ=YEARLY.');
+  }
+  return rule;
+}
+
+// Resolve the editor's start/end pair into ICAL.Time values, following the
+// Google path's conventions: `all_day` carries an inclusive end date (a
+// one-day event ends the day it starts) while `allDay` passes an exclusive
+// end through. iCalendar all-day DTEND is always exclusive, so the inclusive
+// form gains a day here, exactly as the Google body builder does.
+function resolveEventTimes(event) {
+  const inclusiveEnd = event.all_day !== undefined;
+  const isAllDay = inclusiveEnd ? !!event.all_day : !!event.allDay;
+
+  if (isAllDay) {
+    const startDate = toYmd(event.start);
+    let endDate = toYmd(event.end || event.start);
+    if (inclusiveEnd) endDate = nextDay(endDate < startDate ? startDate : endDate);
+    return {
+      isAllDay,
+      start: ICAL.Time.fromDateString(startDate),
+      end: ICAL.Time.fromDateString(endDate),
+    };
+  }
+
+  const start = new Date(event.start);
+  const end = new Date(event.end || event.start);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    throw httpError(400, 'Event start and end must be valid dates.');
+  }
+  return {
+    isAllDay,
+    start: ICAL.Time.fromJSDate(start, true),
+    end: ICAL.Time.fromJSDate(end, true),
+  };
+}
+
+// Serialize one event in the editor's body shape to a VCALENDAR document.
+// Exported for tests; createEvent is the network caller.
+function buildEventIcs(event, uid) {
+  if (!event || typeof event !== 'object') {
+    throw httpError(400, 'An event body is required.');
+  }
+  if (!event.start) {
+    throw httpError(400, 'Event start is required.');
+  }
+  const times = resolveEventTimes(event);
+  const calendar = new ICAL.Component(['vcalendar', [], []]);
+  calendar.addPropertyWithValue('prodid', '-//HomeGlow//Calendar//EN');
+  calendar.addPropertyWithValue('version', '2.0');
+  const vevent = new ICAL.Component('vevent');
+  vevent.addPropertyWithValue('uid', uid);
+  vevent.addPropertyWithValue('dtstamp', ICAL.Time.fromJSDate(new Date(), true));
+  if (event.title !== undefined) vevent.addPropertyWithValue('summary', String(event.title ?? ''));
+  if (event.description !== undefined && event.description !== null) {
+    vevent.addPropertyWithValue('description', String(event.description));
+  }
+  if (event.location !== undefined && event.location !== null) {
+    vevent.addPropertyWithValue('location', String(event.location));
+  }
+  vevent.addPropertyWithValue('dtstart', times.start);
+  vevent.addPropertyWithValue('dtend', times.end);
+  const rule = normalizeRecurrence(event.recurrence);
+  if (rule) vevent.addPropertyWithValue('rrule', ICAL.Recur.fromString(rule));
+  calendar.addSubcomponent(vevent);
+  return serializeCalendar(calendar);
+}
+
+// ical.js joins lines with LF and leaves the last line unterminated; the
+// wire format is CRLF throughout, final line included.
+function serializeCalendar(calendar) {
+  const text = calendar.toString().replace(/\r?\n/g, '\r\n');
+  return text.endsWith('\r\n') ? text : `${text}\r\n`;
+}
+
+// Apply an editor body to a stored event document: fields the body omits
+// keep their stored values, DTSTAMP always advances, and a stored RRULE is
+// kept unless the body replaces it (a string) or clears it (null/'').
+function mergeEventIcs(existingIcs, event) {
+  const calendar = new ICAL.Component(ICAL.parse(existingIcs));
+  const vevent = calendar.getFirstSubcomponent('vevent');
+  if (!vevent) throw httpError(500, 'Stored calendar event could not be parsed.');
+
+  vevent.updatePropertyWithValue('dtstamp', ICAL.Time.fromJSDate(new Date(), true));
+  if (event.title !== undefined) vevent.updatePropertyWithValue('summary', String(event.title ?? ''));
+  if (event.description !== undefined) {
+    if (event.description) vevent.updatePropertyWithValue('description', String(event.description));
+    else vevent.removeProperty('description');
+  }
+  if (event.location !== undefined) {
+    if (event.location) vevent.updatePropertyWithValue('location', String(event.location));
+    else vevent.removeProperty('location');
+  }
+
+  const touchesTime = event.start !== undefined || event.end !== undefined
+    || event.all_day !== undefined || event.allDay !== undefined;
+  if (touchesTime) {
+    const storedEvent = new ICAL.Event(vevent);
+    const storedStart = vevent.getFirstPropertyValue('dtstart');
+    const storedAllDay = storedStart?.isDate ?? false;
+    const resolvedAllDay = event.all_day !== undefined ? !!event.all_day
+      : event.allDay !== undefined ? !!event.allDay : storedAllDay;
+    const spec = {};
+    // Follow the caller's convention for the end edge: the editor's
+    // `all_day` form (inclusive end) wins, then `allDay` (exclusive), then
+    // the stored event's own kind.
+    if (event.all_day !== undefined || (event.allDay === undefined && storedAllDay)) {
+      spec.all_day = resolvedAllDay;
+    } else {
+      spec.allDay = resolvedAllDay;
+    }
+    spec.start = event.start !== undefined ? event.start : storedEvent.startDate.toJSDate();
+    if (event.end !== undefined) {
+      spec.end = event.end;
+    } else {
+      const rawEnd = storedEvent.endDate.toJSDate();
+      // A stored all-day DTEND is exclusive; an inclusive spec wants the
+      // last day itself.
+      spec.end = resolvedAllDay && storedAllDay && spec.all_day !== undefined
+        ? subtractOneDay(rawEnd)
+        : rawEnd;
+    }
+    const times = resolveEventTimes(spec);
+    vevent.updatePropertyWithValue('dtstart', times.start);
+    vevent.updatePropertyWithValue('dtend', times.end);
+  }
+
+  const rule = normalizeRecurrence(event.recurrence);
+  if (rule !== undefined) {
+    if (rule) vevent.updatePropertyWithValue('rrule', ICAL.Recur.fromString(rule));
+    else vevent.removeProperty('rrule');
+  }
+
+  return serializeCalendar(calendar);
+}
+
+// Resolve an event resource href from a REPORT response. Hrefs arrive as
+// absolute URLs or as paths; a path belongs to the same host as the calendar
+// it was read from (the front door for stored sources, a shard host when a
+// source ever points at one), so resolve against the calendar URL rather
+// than assuming the front door.
+function resolveResourceUrl(calendarUrl, href) {
+  const value = (href || '').trim();
+  if (!value) return null;
+  if (value.startsWith('http')) return value;
+  try {
+    return new URL(value, calendarUrl).toString();
+  } catch {
+    return absolutizeUrl(value);
+  }
+}
+
+// Locate one event's resource (href + etag + stored ICS) inside a calendar
+// by UID, using the read path's time-range REPORT.
+async function findEventResource(calendarUrl, appleId, appPassword, uid) {
+  const now = Date.now();
+  const timeMin = new Date(now - 13 * 30 * 24 * 60 * 60 * 1000);
+  const timeMax = new Date(now + 13 * 30 * 24 * 60 * 60 * 1000);
+  const formatDate = (d) => d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+
+  const response = await axios({
+    method: 'REPORT',
+    url: calendarUrl,
+    headers: {
+      'Authorization': buildAuthHeader(appleId, appPassword),
+      'Depth': '1',
+      'Content-Type': 'application/xml; charset=utf-8',
+    },
+    data: ICLOUD_XML_MESSAGE.CALENDAR_QUERY(formatDate(timeMin), formatDate(timeMax)),
+    timeout: 30000,
+    validateStatus: (s) => s < 500,
+  });
+
+  if (response.status !== 207 && response.status !== 200) {
+    throw httpError(response.status, `Failed to read iCloud calendar (HTTP ${response.status}).`);
+  }
+
+  for (const responseNode of parseMultistatusResponses(response.data)) {
+    const ics = nodeText(findProp(responseNode, 'calendar-data'));
+    if (!ics || !ics.includes('BEGIN:VCALENDAR')) continue;
+    let events;
+    try {
+      events = icsToEvents(ics);
+    } catch (err) {
+      continue;
+    }
+    if (events.some((e) => e.uid === uid)) {
+      return {
+        href: resolveResourceUrl(calendarUrl, nodeText(responseNode.href)),
+        etag: nodeText(findProp(responseNode, 'getetag')),
+        ics: ics.trim(),
+      };
+    }
+  }
+  return null;
+}
+
+async function createEvent(calendarUrl, appleId, appPassword, event) {
+  if (!event || !event.title || !String(event.title).trim()) {
+    throw httpError(400, 'Event title is required.');
+  }
+  const uid = `${crypto.randomUUID()}@homeglow`;
+  const ics = buildEventIcs(event, uid);
+  const resourceUrl = `${calendarUrl.replace(/\/?$/, '/')}${encodeURIComponent(uid.split('@')[0])}.ics`;
+
+  const response = await axios({
+    method: 'PUT',
+    url: resourceUrl,
+    headers: {
+      'Authorization': buildAuthHeader(appleId, appPassword),
+      'Content-Type': 'text/calendar; charset=utf-8',
+      // Create-only: a fresh UUID cannot collide, and if it somehow does
+      // the write must fail rather than overwrite a stranger's event.
+      'If-None-Match': '*',
+    },
+    data: ics,
+    timeout: 15000,
+    validateStatus: (s) => s < 500,
+  });
+
+  if (response.status !== 201 && response.status !== 200 && response.status !== 204) {
+    throw httpError(response.status, `iCloud refused the new event (HTTP ${response.status}).`);
+  }
+  return { id: uid, uid };
+}
+
+async function updateEvent(calendarUrl, appleId, appPassword, uid, event) {
+  const found = await findEventResource(calendarUrl, appleId, appPassword, uid);
+  if (!found) throw httpError(404, 'Event not found on this calendar.');
+  const ics = mergeEventIcs(found.ics, event || {});
+
+  const headers = {
+    'Authorization': buildAuthHeader(appleId, appPassword),
+    'Content-Type': 'text/calendar; charset=utf-8',
+  };
+  if (found.etag) headers['If-Match'] = found.etag;
+
+  const response = await axios({
+    method: 'PUT',
+    url: found.href,
+    headers,
+    data: ics,
+    timeout: 15000,
+    validateStatus: (s) => s < 500,
+  });
+
+  if (response.status === 412) {
+    throw httpError(412, 'This event changed somewhere else since it was loaded. Sync and try again.');
+  }
+  if (response.status !== 200 && response.status !== 201 && response.status !== 204) {
+    throw httpError(response.status, `iCloud refused the event update (HTTP ${response.status}).`);
+  }
+  return { id: uid, uid };
+}
+
+async function deleteEvent(calendarUrl, appleId, appPassword, uid) {
+  const found = await findEventResource(calendarUrl, appleId, appPassword, uid);
+  if (!found) return { deleted: true, alreadyGone: true };
+
+  const headers = { 'Authorization': buildAuthHeader(appleId, appPassword) };
+  if (found.etag) headers['If-Match'] = found.etag;
+
+  const response = await axios({
+    method: 'DELETE',
+    url: found.href,
+    headers,
+    timeout: 15000,
+    validateStatus: (s) => s < 500,
+  });
+
+  if (response.status === 412) {
+    throw httpError(412, 'This event changed somewhere else since it was loaded. Sync and try again.');
+  }
+  // 404 counts as success: the event is gone either way.
+  if (response.status !== 200 && response.status !== 204 && response.status !== 404) {
+    throw httpError(response.status, `iCloud refused the event delete (HTTP ${response.status}).`);
+  }
+  return { deleted: true };
+}
+
 module.exports = {
   discoverAndListCalendars,
   fetchCalendarEvents,
+  createEvent,
+  updateEvent,
+  deleteEvent,
   // Exported for unit testing (pure XML/ICS helpers, no network).
   ICLOUD_XML_MESSAGE,
   parsePrincipalUrl,
@@ -520,4 +842,7 @@ module.exports = {
   normalizeFeedUrl,
   extractIcsPayloads,
   icsToEvents,
+  buildEventIcs,
+  mergeEventIcs,
+  findEventResource,
 };

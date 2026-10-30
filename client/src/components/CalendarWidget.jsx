@@ -955,17 +955,21 @@ const CalendarWidget = ({
     return formatShortDateTime(date);
   };
 
-  const getGoogleSources = () => calendarSources.filter((s) => s.type === 'Google' && s.enabled);
+  // Sources the event routes can write to: Google and Apple. Everything
+  // else (subscription feeds, local) stays read-only in the editor.
+  const getWritableSources = () => calendarSources.filter(
+    (s) => (s.type === 'Google' || s.type === 'Apple') && s.enabled,
+  );
 
-  const isGoogleEvent = (event) => {
+  const isWritableEvent = (event) => {
     if (!event) return false;
     const src = calendarSources.find((s) => s.id === event.source_id);
-    return !!src && src.type === 'Google';
+    return !!src && (src.type === 'Google' || src.type === 'Apple');
   };
 
   const openCreateEventDialog = () => {
-    const googleSources = getGoogleSources();
-    if (googleSources.length === 0) return;
+    const writableSources = getWritableSources();
+    if (writableSources.length === 0) return;
     markActivity();
     const baseDay = selectedDate ? moment(selectedDate) : moment();
     const start = baseDay.clone().hour(9).minute(0).second(0);
@@ -980,7 +984,7 @@ const CalendarWidget = ({
       color_id: '',
     });
     setEventError('');
-    setEventDialog({ open: true, mode: 'create', event: null, sourceId: googleSources[0].id });
+    setEventDialog({ open: true, mode: 'create', event: null, sourceId: writableSources[0].id });
   };
 
   const openEditEventDialog = (event) => {
@@ -1027,9 +1031,13 @@ const CalendarWidget = ({
         start: eventForm.start,
         end: eventForm.end,
       };
-      // Only a picked or changed color is sent (#244).
-      const colorId = eventColorToSend(eventDialog.mode, eventForm.color_id, eventDialog.event?.color_id);
-      if (colorId !== undefined) payload.color_id = colorId;
+      // Only a picked or changed color is sent (#244), and only to Google:
+      // per-event colors are a Google colorId, which Apple events don't have.
+      const dialogSource = calendarSources.find((s) => s.id === eventDialog.sourceId);
+      if (dialogSource?.type === 'Google') {
+        const colorId = eventColorToSend(eventDialog.mode, eventForm.color_id, eventDialog.event?.color_id);
+        if (colorId !== undefined) payload.color_id = colorId;
+      }
       if (eventDialog.mode === 'create') {
         await axios.post(`${API_BASE_URL}/api/calendar-sources/${eventDialog.sourceId}/events`, payload);
       } else {
@@ -1052,7 +1060,7 @@ const CalendarWidget = ({
   };
 
   const deleteEvent = async (event) => {
-    if (!isGoogleEvent(event)) return;
+    if (!isWritableEvent(event)) return;
     if (!window.confirm(t('calendar:event.confirmDelete'))) return;
     try {
       await axios.delete(
@@ -1877,7 +1885,7 @@ const CalendarWidget = ({
                         }}
                       />
                     </Box>
-                    {isGoogleEvent(event) && !hideEditEvents && (
+                    {isWritableEvent(event) && !hideEditEvents && (
                       <Box sx={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: 0.5 }}>
                         <Tooltip title={t('calendar:widget.editEvent')}>
                           <IconButton size="small" onClick={() => openEditEventDialog(event)}>
@@ -1922,7 +1930,7 @@ const CalendarWidget = ({
           )}
         </DialogContent>
         <DialogActions sx={{ justifyContent: 'space-between' }}>
-          {getGoogleSources().length > 0 && !hideEditEvents ? (
+          {getWritableSources().length > 0 && !hideEditEvents ? (
             <Button
               onClick={openCreateEventDialog}
               startIcon={<Add />}
@@ -1959,7 +1967,7 @@ const CalendarWidget = ({
               <Alert severity="error" sx={{ mb: 2 }}>{eventError}</Alert>
             )}
 
-            {eventDialog.mode === 'create' && getGoogleSources().length > 1 && (
+            {eventDialog.mode === 'create' && getWritableSources().length > 1 && (
               <FormControl fullWidth sx={{ mb: 2 }}>
                 <InputLabel>Calendar</InputLabel>
                 <Select
@@ -1967,7 +1975,7 @@ const CalendarWidget = ({
                   label={t('calendar:event.calendar')}
                   onChange={(e) => setEventDialog({ ...eventDialog, sourceId: e.target.value })}
                 >
-                  {getGoogleSources().map((s) => (
+                  {getWritableSources().map((s) => (
                     <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>
                   ))}
                 </Select>
@@ -2033,13 +2041,15 @@ const CalendarWidget = ({
               />
             </Box>
 
-            <Box sx={{ mb: 2 }}>
-              <EventColorPicker
-                value={eventForm.color_id}
-                onChange={(colorId) => setEventForm((prev) => ({ ...prev, color_id: colorId }))}
-                calendarColor={calendarSources.find((s) => s.id === eventDialog.sourceId)?.color}
-              />
-            </Box>
+            {calendarSources.find((s) => s.id === eventDialog.sourceId)?.type === 'Google' && (
+              <Box sx={{ mb: 2 }}>
+                <EventColorPicker
+                  value={eventForm.color_id}
+                  onChange={(colorId) => setEventForm((prev) => ({ ...prev, color_id: colorId }))}
+                  calendarColor={calendarSources.find((s) => s.id === eventDialog.sourceId)?.color}
+                />
+              </Box>
+            )}
 
             <TextField
               fullWidth

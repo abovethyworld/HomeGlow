@@ -12,6 +12,11 @@ const {
     extractIcsPayloads,
     icsToEvents,
     fetchCalendarEvents,
+    buildEventIcs,
+    mergeEventIcs,
+    createEvent,
+    updateEvent,
+    deleteEvent,
 } = require('../services/appleCalDAV');
 
 // Anonymized fixtures: no real names, emails, or principal/DSID values.
@@ -623,6 +628,285 @@ test('fetchCalendarEvents sends the calendar-query body with a time-range', asyn
         assert.match(report.body, /<c:calendar-query/);
         // Basic-format UTC bounds, e.g. 20260309T094500Z
         assert.match(report.body, /<c:time-range start="\d{8}T\d{6}Z" end="\d{8}T\d{6}Z"\s*\/>/);
+    } finally {
+        await fake.close();
+    }
+});
+
+// ---------------------------------------------------------------------------
+// Write path (create / update / delete)
+// ---------------------------------------------------------------------------
+
+const WRITE_ICS = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Example//EN',
+    'BEGIN:VEVENT',
+    'UID:write-uid-1@homeglow',
+    'DTSTAMP:20260101T000000Z',
+    'DTSTART;VALUE=DATE:20261031',
+    'DTEND;VALUE=DATE:20261101',
+    'SUMMARY:Stored Title',
+    'DESCRIPTION:Stored description',
+    'LOCATION:Stored place',
+    'RRULE:FREQ=YEARLY',
+    'END:VEVENT',
+    'END:VCALENDAR',
+].join('\r\n');
+
+// Fake CalDAV endpoint for writes: serves a fixed REPORT body and answers
+// PUT/DELETE with configurable statuses, recording every request.
+async function startFakeCalDavWrites() {
+    const state = { reportBody: '', putStatus: 201, deleteStatus: 204, requests: [] };
+    const server = http.createServer((req, res) => {
+        let body = '';
+        req.on('data', (chunk) => { body += chunk; });
+        req.on('end', () => {
+            state.requests.push({ method: req.method, url: req.url, headers: req.headers, body });
+            if (req.method === 'REPORT') {
+                res.statusCode = 207;
+                res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+                res.end(state.reportBody);
+                return;
+            }
+            if (req.method === 'PUT') { res.statusCode = state.putStatus; res.end(); return; }
+            if (req.method === 'DELETE') { res.statusCode = state.deleteStatus; res.end(); return; }
+            res.statusCode = 405;
+            res.end();
+        });
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    return {
+        base: `http://127.0.0.1:${server.address().port}`,
+        state,
+        close: () => new Promise((resolve) => server.close(resolve)),
+    };
+}
+
+test('buildEventIcs makes an all-day event with an exclusive DTEND from an inclusive end', () => {
+    const ics = buildEventIcs(
+        { title: 'Halloween', all_day: true, start: '2026-10-31', end: '2026-10-31' },
+        'uid-1@homeglow'
+    );
+    assert.match(ics, /UID:uid-1@homeglow\r\n/);
+    assert.match(ics, /SUMMARY:Halloween\r\n/);
+    assert.match(ics, /DTSTART;VALUE=DATE:20261031\r\n/);
+    // The editor's end is the last day itself; iCalendar wants the day after.
+    assert.match(ics, /DTEND;VALUE=DATE:20261101\r\n/);
+    assert.ok(ics.endsWith('\r\n'), 'lines must be CRLF terminated');
+    assert.ok(!/(?<!\r)\n/.test(ics), 'no bare LF line endings');
+});
+
+test('buildEventIcs makes a timed event in UTC and escapes text', () => {
+    const ics = buildEventIcs(
+        {
+            title: 'Dinner, out; late',
+            description: 'Bring plates',
+            location: 'Home',
+            all_day: false,
+            start: '2026-10-31T09:00',
+            end: '2026-10-31T10:00',
+        },
+        'uid-2@homeglow'
+    );
+    assert.match(ics, /SUMMARY:Dinner\\, out\\; late\r\n/);
+    assert.match(ics, /DTSTART:\d{8}T\d{6}Z\r\n/);
+    assert.match(ics, /DTEND:\d{8}T\d{6}Z\r\n/);
+    assert.match(ics, /DESCRIPTION:Bring plates\r\n/);
+    assert.match(ics, /LOCATION:Home\r\n/);
+});
+
+test('buildEventIcs accepts a yearly RRULE and rejects a non-RRULE recurrence', () => {
+    const ics = buildEventIcs(
+        { title: 'Birthday', all_day: true, start: '2027-07-21', end: '2027-07-21', recurrence: 'FREQ=YEARLY' },
+        'uid-3@homeglow'
+    );
+    assert.match(ics, /RRULE:FREQ=YEARLY\r\n/);
+    assert.throws(
+        () => buildEventIcs(
+            { title: 'X', all_day: true, start: '2027-01-01', end: '2027-01-01', recurrence: 'every tuesday' },
+            'uid-4@homeglow'
+        ),
+        (err) => err.status === 400
+    );
+});
+
+test('mergeEventIcs keeps stored fields the body omits and preserves the RRULE', () => {
+    const merged = mergeEventIcs(WRITE_ICS, { title: 'New Title' });
+    assert.match(merged, /SUMMARY:New Title\r\n/);
+    assert.match(merged, /DESCRIPTION:Stored description\r\n/);
+    assert.match(merged, /LOCATION:Stored place\r\n/);
+    assert.match(merged, /RRULE:FREQ=YEARLY\r\n/);
+    assert.match(merged, /DTSTART;VALUE=DATE:20261031\r\n/);
+    assert.match(merged, /UID:write-uid-1@homeglow\r\n/);
+    assert.ok(!merged.includes('DTSTAMP:20260101T000000Z'), 'DTSTAMP must advance');
+});
+
+test('mergeEventIcs clears a field emptied in the body and retimes the event', () => {
+    const merged = mergeEventIcs(WRITE_ICS, {
+        description: '',
+        all_day: true,
+        start: '2026-11-01',
+        end: '2026-11-02',
+    });
+    assert.ok(!merged.includes('DESCRIPTION'), 'emptied description is removed');
+    assert.match(merged, /DTSTART;VALUE=DATE:20261101\r\n/);
+    // Inclusive end 2026-11-02 becomes exclusive 2026-11-03.
+    assert.match(merged, /DTEND;VALUE=DATE:20261103\r\n/);
+});
+
+test('createEvent PUTs a new resource with If-None-Match and returns the uid', async () => {
+    const fake = await startFakeCalDavWrites();
+    try {
+        const created = await createEvent(
+            `${fake.base}/123456/calendars/home/`,
+            'user@example.com',
+            'app-specific-password',
+            { title: 'New Event', all_day: true, start: '2026-12-25', end: '2026-12-25', recurrence: 'FREQ=YEARLY' }
+        );
+        assert.match(created.id, /@homeglow$/);
+        const put = fake.state.requests.find((r) => r.method === 'PUT');
+        assert.ok(put, 'a PUT must be issued');
+        assert.match(put.url, /^\/123456\/calendars\/home\/[0-9a-f-]+\.ics$/);
+        assert.equal(put.headers['if-none-match'], '*');
+        assert.match(put.headers['content-type'], /text\/calendar/);
+        assert.match(put.headers.authorization ?? '', /^Basic /);
+        assert.match(put.body, /SUMMARY:New Event\r\n/);
+        assert.match(put.body, new RegExp(`UID:${created.id.replace('@', '\\@')}`));
+        assert.match(put.body, /RRULE:FREQ=YEARLY\r\n/);
+    } finally {
+        await fake.close();
+    }
+});
+
+test('createEvent refuses a missing title before any request', async () => {
+    const fake = await startFakeCalDavWrites();
+    try {
+        await assert.rejects(
+            () => createEvent(`${fake.base}/cal/`, 'user@example.com', 'pw', { all_day: true, start: '2026-12-25' }),
+            (err) => err.status === 400
+        );
+        assert.equal(fake.state.requests.length, 0);
+    } finally {
+        await fake.close();
+    }
+});
+
+test('createEvent surfaces a refusal status instead of retrying', async () => {
+    const fake = await startFakeCalDavWrites();
+    try {
+        fake.state.putStatus = 403;
+        await assert.rejects(
+            () => createEvent(
+                `${fake.base}/cal/`,
+                'user@example.com',
+                'pw',
+                { title: 'Nope', all_day: true, start: '2026-12-25', end: '2026-12-25' }
+            ),
+            (err) => err.status === 403
+        );
+        assert.equal(fake.state.requests.filter((r) => r.method === 'PUT').length, 1, 'exactly one PUT, no retries');
+    } finally {
+        await fake.close();
+    }
+});
+
+test('updateEvent finds the resource by UID and PUTs with If-Match', async () => {
+    const fake = await startFakeCalDavWrites();
+    try {
+        fake.state.reportBody = buildReportWithCdata(WRITE_ICS);
+        fake.state.putStatus = 204;
+        const updated = await updateEvent(
+            `${fake.base}/123456/calendars/home/`,
+            'user@example.com',
+            'app-specific-password',
+            'write-uid-1@homeglow',
+            { title: 'Renamed' }
+        );
+        assert.equal(updated.id, 'write-uid-1@homeglow');
+        const put = fake.state.requests.find((r) => r.method === 'PUT');
+        assert.ok(put, 'a PUT must be issued');
+        assert.equal(put.url, '/123456/calendars/home/event.ics');
+        assert.equal(put.headers['if-match'], '"abc123"');
+        assert.match(put.body, /SUMMARY:Renamed\r\n/);
+        assert.match(put.body, /LOCATION:Stored place\r\n/, 'untouched fields ride along');
+    } finally {
+        await fake.close();
+    }
+});
+
+test('updateEvent 404s when the UID is not on the calendar', async () => {
+    const fake = await startFakeCalDavWrites();
+    try {
+        fake.state.reportBody = buildReportWithCdata(WRITE_ICS);
+        await assert.rejects(
+            () => updateEvent(
+                `${fake.base}/123456/calendars/home/`,
+                'user@example.com',
+                'pw',
+                'someone-else@homeglow',
+                { title: 'Nope' }
+            ),
+            (err) => err.status === 404
+        );
+        assert.equal(fake.state.requests.filter((r) => r.method === 'PUT').length, 0);
+    } finally {
+        await fake.close();
+    }
+});
+
+test('updateEvent turns an If-Match 412 into a sync-and-retry message', async () => {
+    const fake = await startFakeCalDavWrites();
+    try {
+        fake.state.reportBody = buildReportWithCdata(WRITE_ICS);
+        fake.state.putStatus = 412;
+        await assert.rejects(
+            () => updateEvent(
+                `${fake.base}/123456/calendars/home/`,
+                'user@example.com',
+                'pw',
+                'write-uid-1@homeglow',
+                { title: 'Race' }
+            ),
+            (err) => err.status === 412 && /changed somewhere else/.test(err.message)
+        );
+    } finally {
+        await fake.close();
+    }
+});
+
+test('deleteEvent DELETEs the found resource with If-Match', async () => {
+    const fake = await startFakeCalDavWrites();
+    try {
+        fake.state.reportBody = buildReportWithCdata(WRITE_ICS);
+        const result = await deleteEvent(
+            `${fake.base}/123456/calendars/home/`,
+            'user@example.com',
+            'app-specific-password',
+            'write-uid-1@homeglow'
+        );
+        assert.deepEqual(result, { deleted: true });
+        const del = fake.state.requests.find((r) => r.method === 'DELETE');
+        assert.ok(del, 'a DELETE must be issued');
+        assert.equal(del.url, '/123456/calendars/home/event.ics');
+        assert.equal(del.headers['if-match'], '"abc123"');
+    } finally {
+        await fake.close();
+    }
+});
+
+test('deleteEvent treats an absent event as already deleted', async () => {
+    const fake = await startFakeCalDavWrites();
+    try {
+        fake.state.reportBody = buildReportWithCdata(WRITE_ICS);
+        const result = await deleteEvent(
+            `${fake.base}/123456/calendars/home/`,
+            'user@example.com',
+            'pw',
+            'ghost@homeglow'
+        );
+        assert.deepEqual(result, { deleted: true, alreadyGone: true });
+        assert.equal(fake.state.requests.filter((r) => r.method === 'DELETE').length, 0);
     } finally {
         await fake.close();
     }
