@@ -6,6 +6,22 @@ It is the record we will share with the HomeGlow project when the time comes.
 
 ## Shipped
 
+### Family board step 4: per-member backgrounds and accents — 2026-10-29
+
+- What: `/board` wears the household's default background (the same
+  appearance background the dashboard uses). Opening a profile swaps
+  in that member's wallpaper, taken from the Wallpaper Engine
+  plugin's package index in plugin storage, and tints the profile
+  view and the member's overview button with the wallpaper's own
+  scheme color. The 60s idle return falls back to the default.
+  Scene wallpapers stand in with their animated preview GIFs until
+  their browser rebuilds land.
+- Why: Gavin's model for the board: one shared default look, and
+  every family member gets their own background and theme when
+  they open their view.
+- Upstream idea: per-user appearance on a shared display, resolved
+  from data a plugin already maintains.
+
 ### Personalization: video backgrounds — 2026-10-29
 
 - What: the personalization background gains a `video` kind. It points at
