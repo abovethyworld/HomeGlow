@@ -31,11 +31,18 @@ describe('ProfileSwitcher layout', () => {
     expect(SWITCHER).toContain("justifyContent: 'flex-end'");
   });
 
-  it('shows members as photo circles from their profile pictures, initial as fallback', () => {
+  it('renders no member circles and no Default: picking a person happens only at the wake picker', () => {
+    expect(SWITCHER).not.toContain('<Avatar');
+    expect(SWITCHER).not.toContain('members.map');
+    expect(SWITCHER).not.toContain('apply(null)');
+    expect(SWITCHER).toContain('Sleep');
+    expect(SWITCHER).toContain('Wallpapers');
+  });
+
+  it('still owns the member photo machinery the wake picker uses', () => {
     expect(SWITCHER).toContain('/Uploads/users/');
     expect(SWITCHER).toContain('profilePhotoUrl');
-    expect(SWITCHER).toContain('<Avatar');
-    expect(SWITCHER).toContain('entry.user.username.charAt(0)');
+    expect(SWITCHER).toContain('WAKE_PROFILE_PICK_EVENT');
   });
 
   it('fades out with the idle fade, staying mounted so waking never shifts the layout', () => {

@@ -1,25 +1,31 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { Avatar, Box, Button, Typography } from '@mui/material';
+import { Box, Button } from '@mui/material';
 import { API_BASE_URL } from '../utils/apiConfig.js';
 import { getDeviceApiBase } from '../utils/deviceName.js';
 import { saveAppearanceFields } from '../utils/appearanceSave.js';
 import { WAKE_PROFILE_PICK_EVENT } from '../utils/idleFade.js';
 import WallpaperPicker from './WallpaperPicker.jsx';
 
-// "Who is looking" for this display: a chip per family member whose
-// wallpaper the Wallpaper Engine plugin tracks. Tapping one writes
-// this display's appearance overrides (that member's wallpaper as the
-// background, their palette as the interface colors, light and dark),
-// so the whole dashboard takes their look; Default drops the
-// overrides and the household look returns. The household appearance
-// itself is never touched. Same save path and refresh event the
-// Admin panel uses.
+// The machinery behind "who is looking" for this display, plus the
+// small utility row at the top of the dashboard. Applying a member
+// writes this display's appearance overrides (that member's
+// wallpaper as the background, their palette as the interface
+// colors, light and dark), so the whole dashboard takes their look.
+// The household appearance itself is never touched. Same save path
+// and refresh event the Admin panel uses.
 //
-// If the tapped member has a device setup linked to their profile,
-// the tap also applies that setup's tabs/widgets configuration to
-// this display (an explicit action, like the appearance change).
-// app.jsx refetches tabs and assignments on the config-updated event.
+// If the member has a device setup linked to their profile, applying
+// them also applies that setup's tabs/widgets configuration to this
+// display. app.jsx refetches tabs and assignments on the
+// config-updated event.
+//
+// The row itself no longer offers the members or a Default button
+// (Gavin's call after trying the wake flow): picking who is looking
+// happens only at the wake picker, and the way back there is Sleep.
+// The row keeps Sleep and the Wallpapers browser; this component
+// still owns the member set and the apply path because the wake
+// picker (components/WakePicker.jsx) picks through it.
 const DEVICE_SETTINGS_UPDATED_EVENT = 'homeglow:device-settings-updated';
 const DEVICE_CONFIG_UPDATED_EVENT = 'homeglow:device-config-updated';
 const PLUGIN_ID = 'wallpaper-engine';
@@ -49,7 +55,7 @@ export function profilePhotoUrl(user) {
   return pic.startsWith('data:') ? pic : `${API_BASE_URL}/Uploads/users/${pic}`;
 }
 
-export default function ProfileSwitcher({ appearance, faded = false, onSleep }) {
+export default function ProfileSwitcher({ faded = false, onSleep }) {
   const [users, setUsers] = useState([]);
   const [packages, setPackages] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -83,13 +89,6 @@ export default function ProfileSwitcher({ appearance, faded = false, onSleep }) 
       .filter((entry) => entry.pkg && backgroundFor(entry.pkg)),
     [users, packages],
   );
-
-  const activeId = useMemo(() => {
-    const src = appearance?.background?.src;
-    if (!src) return null;
-    const hit = members.find(({ pkg }) => pkg.video === src || pkg.preview === src || pkg.animated === src || pkg.still === src);
-    return hit ? hit.user.id : null;
-  }, [appearance, members]);
 
   const applyPackage = async (pkg) => {
     if (busy) return;
@@ -127,8 +126,8 @@ export default function ProfileSwitcher({ appearance, faded = false, onSleep }) 
 
   const apply = (entry) => {
     void applyPackage(entry ? entry.pkg : null);
-    // Only a member tap carries a profile, so only it can apply a
-    // linked setup; Default never touches the configuration.
+    // Only a member pick carries a profile, so only it can apply a
+    // linked setup.
     if (entry) {
       void applyProfileSetup(entry.user.id);
     }
@@ -206,62 +205,6 @@ export default function ProfileSwitcher({ appearance, faded = false, onSleep }) 
       <Button disabled={busy} onClick={() => setPickerOpen(true)} sx={chipSx(false, null)}>
         Wallpapers
       </Button>
-      <Button disabled={busy} onClick={() => apply(null)} sx={chipSx(activeId === null, null)}>
-        Default
-      </Button>
-      {members.map((entry) => {
-        const isActive = activeId === entry.user.id;
-        const accent = entry.pkg.palette?.accent || null;
-        return (
-          <Button
-            key={entry.user.id}
-            disabled={busy}
-            onClick={() => apply(entry)}
-            sx={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: 0.25,
-              minWidth: 56,
-              px: 1,
-              py: 0.5,
-              borderRadius: 3,
-              textTransform: 'none',
-              '&:hover': { backgroundColor: 'transparent' },
-            }}
-          >
-            <Avatar
-              src={profilePhotoUrl(entry.user) || undefined}
-              alt={entry.user.username}
-              sx={{
-                width: 44,
-                height: 44,
-                bgcolor: accent || 'rgba(30, 30, 34, 0.72)',
-                color: '#fff',
-                fontSize: 18,
-                fontWeight: 700,
-                opacity: isActive ? 1 : 0.85,
-                boxShadow: isActive
-                  ? '0 0 0 2px #fff'
-                  : '0 0 0 1px var(--hg-white-30)',
-              }}
-            >
-              {entry.user.username.charAt(0)}
-            </Avatar>
-            <Typography
-              variant="caption"
-              sx={{
-                color: '#fff',
-                fontSize: 11,
-                lineHeight: 1,
-                textShadow: '0 1px 3px var(--hg-black-70)',
-              }}
-            >
-              {entry.user.username}
-            </Typography>
-          </Button>
-        );
-      })}
       <WallpaperPicker
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}
