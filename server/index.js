@@ -2812,6 +2812,17 @@ function buildConfigSnapshot(deviceName) {
     });
   }
 
+  // The chore widget keeps its own settings block on the device
+  // (hidden members, bonus chores, sounds), outside widgetSettings.
+  // A snapshot that carries the chores widget captures that block
+  // too, so applying the snapshot reproduces the same chore view on
+  // any display (a kid's chart shows only their own chores).
+  const rawChoreSettings = getDeviceSettingsObject(deviceName).choreWidgetSettings;
+  const choreWidgetSettings = widgetNames.has('chores')
+    && rawChoreSettings && typeof rawChoreSettings === 'object' && !Array.isArray(rawChoreSettings)
+    ? rawChoreSettings
+    : null;
+
   return {
     tabs: tabs.map((tab) => ({
       number: tab.number,
@@ -2822,6 +2833,7 @@ function buildConfigSnapshot(deviceName) {
       config_json: tab.config_json || '{}',
     })),
     widgetSettings,
+    choreWidgetSettings,
   };
 }
 
@@ -2847,13 +2859,31 @@ function writeConfigSnapshotToDevice(deviceName, snapshot) {
     });
 
     const snapshotWidgetSettings = snapshot?.widgetSettings;
-    if (snapshotWidgetSettings && typeof snapshotWidgetSettings === 'object'
-      && Object.keys(snapshotWidgetSettings).length > 0) {
+    const hasWidgetSettings = snapshotWidgetSettings && typeof snapshotWidgetSettings === 'object'
+      && Object.keys(snapshotWidgetSettings).length > 0;
+    // A snapshot whose tabs carry the chores widget also decides the
+    // chore widget's own settings block on the target device. Without
+    // this, a kid's setup (only their chores visible) would leave the
+    // previous viewer's chore settings behind, and the next profile's
+    // setup could never restore its own. Snapshots saved before the
+    // block was captured fall back to the widget's defaults.
+    const carriesChores = tabLayoutWidgetNames(
+      Array.isArray(snapshot?.tabs) ? snapshot.tabs : []
+    ).has('chores');
+    if (hasWidgetSettings || carriesChores) {
       const settings = getDeviceSettingsObject(deviceName);
-      const existingWidgetSettings = settings.widgetSettings && typeof settings.widgetSettings === 'object'
-        ? settings.widgetSettings
-        : {};
-      settings.widgetSettings = { ...existingWidgetSettings, ...snapshotWidgetSettings };
+      if (hasWidgetSettings) {
+        const existingWidgetSettings = settings.widgetSettings && typeof settings.widgetSettings === 'object'
+          ? settings.widgetSettings
+          : {};
+        settings.widgetSettings = { ...existingWidgetSettings, ...snapshotWidgetSettings };
+      }
+      if (carriesChores) {
+        const captured = snapshot.choreWidgetSettings;
+        settings.choreWidgetSettings = captured && typeof captured === 'object' && !Array.isArray(captured)
+          ? captured
+          : { showBonusChores: true, soundEnabled: true, hiddenUserIds: [], showWeek: false };
+      }
       db.prepare('UPDATE devices SET device_settings_json = ? WHERE name = ?').run(
         JSON.stringify(settings),
         deviceName
@@ -2930,6 +2960,7 @@ function seedDeviceSetupIfUnconfigured(deviceName) {
       writeConfigSnapshotToDevice(deviceName, {
         tabs: parseSetupTabs(defaultSetup.tabs_json),
         widgetSettings: parseJsonObject(defaultSetup.widget_settings_json, {}),
+        choreWidgetSettings: parseJsonObject(defaultSetup.chore_widget_settings_json, null),
       });
       console.log(`Seeded new device "${deviceName}" from default setup "${defaultSetup.name}"`);
       return;
@@ -3200,13 +3231,19 @@ fastify.post('/api/device-setups', async (request, reply) => {
     const existing = db.prepare('SELECT id FROM device_setups WHERE name = ?').get(normalizedName);
     const saveSetup = db.transaction(() => {
       db.prepare(`
-        INSERT INTO device_setups (name, tabs_json, widget_settings_json)
-        VALUES (?, ?, ?)
+        INSERT INTO device_setups (name, tabs_json, widget_settings_json, chore_widget_settings_json)
+        VALUES (?, ?, ?, ?)
         ON CONFLICT(name) DO UPDATE SET
           tabs_json = excluded.tabs_json,
           widget_settings_json = excluded.widget_settings_json,
+          chore_widget_settings_json = excluded.chore_widget_settings_json,
           updated_at = CURRENT_TIMESTAMP
-      `).run(normalizedName, JSON.stringify(snapshot.tabs), JSON.stringify(snapshot.widgetSettings));
+      `).run(
+        normalizedName,
+        JSON.stringify(snapshot.tabs),
+        JSON.stringify(snapshot.widgetSettings),
+        snapshot.choreWidgetSettings ? JSON.stringify(snapshot.choreWidgetSettings) : null
+      );
 
       // An overwrite that does not mention a profile keeps the old link.
       if (hasProfileLink) {
@@ -3315,6 +3352,7 @@ fastify.post('/api/devices/:deviceName/apply-setup/:setupId', async (request, re
     writeConfigSnapshotToDevice(deviceName, {
       tabs: parseSetupTabs(setup.tabs_json),
       widgetSettings: parseJsonObject(setup.widget_settings_json, {}),
+      choreWidgetSettings: parseJsonObject(setup.chore_widget_settings_json, null),
     });
 
     return { success: true, message: 'Setup applied successfully' };
