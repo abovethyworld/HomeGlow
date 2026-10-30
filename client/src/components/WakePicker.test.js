@@ -51,4 +51,10 @@ describe('WakePicker', () => {
     expect(APP).toContain("dashboardPhase !== 'active'");
     expect(APP).toContain('onEmpty={() => wakeCycleRef.current?.choose()}');
   });
+
+  it('is the landing flow: a page load starts on the wallpaper, not the dashboard', () => {
+    expect(APP).toContain("const startPhase = fadeHideMs != null ? 'idle' : 'active'");
+    expect(APP).toContain('initialPhase: startPhase');
+    expect(APP).toContain('useState(startPhase)');
+  });
 });

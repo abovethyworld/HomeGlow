@@ -21,7 +21,10 @@ It is the record we will share with the HomeGlow project when the time comes.
   wallpaper. With no members to pick, the picker skips itself. The
   profile row also has a Sleep chip: it drops the board straight to
   the idle wallpaper (the cycle's sleepNow()), so the flow is one
-  tap away instead of a 2-minute wait.
+  tap away instead of a 2-minute wait. A fresh page load starts in
+  the idle phase too (the cycle's initialPhase): Eden opens on the
+  wallpaper, never on the dashboard, and the picker is the way in
+  from there as well.
 - client/src/utils/idleFade.js (createIdleWakeCycle, picker timeout,
   pick event) + tests, client/src/components/WakePicker.jsx + tests,
   client/src/app.jsx (phase state + wiring), client/src/components/

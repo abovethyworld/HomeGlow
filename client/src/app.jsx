@@ -1037,25 +1037,33 @@ const App = () => {
   // wallpaper, screensaver style. Waking it does NOT bring the
   // dashboard back: the wake cycle offers the profile picker, and
   // only tapping a member's circle loads their side and returns to
-  // the dashboard. dashboardIdle covers both non-active phases, so
-  // the switcher row, the grid and the dock stay melted in the
-  // picker too. Suspended while Admin is open or the real
-  // screensaver is up, since both own the screen then.
+  // the dashboard. A fresh page load starts on the wallpaper too
+  // (startPhase 'idle' on desktop): the dashboard is never the
+  // landing page, the picker is the way in. dashboardIdle covers
+  // both non-active phases, so the switcher row, the grid and the
+  // dock stay melted in the picker too. Suspended while Admin is
+  // open or the real screensaver is up, since both own the screen
+  // then.
   const fadeHideMs = idleFadeTimeoutMs({ isMobile });
-  const [dashboardPhase, setDashboardPhase] = useState('active');
+  const startPhase = fadeHideMs != null ? 'idle' : 'active';
+  const [dashboardPhase, setDashboardPhase] = useState(startPhase);
   const dashboardIdle = dashboardPhase !== 'active';
   const wakeCycleRef = useRef(null);
 
   useEffect(() => {
-    const cycle = createIdleWakeCycle({ idleTimeoutMs: fadeHideMs, onChange: setDashboardPhase });
+    const cycle = createIdleWakeCycle({
+      idleTimeoutMs: fadeHideMs,
+      initialPhase: startPhase,
+      onChange: setDashboardPhase,
+    });
     wakeCycleRef.current = cycle;
+    setDashboardPhase(startPhase);
     cycle.setSuspended(showAdminPanelRef.current || screensaverActiveRef.current);
     return () => {
       cycle.dispose();
       wakeCycleRef.current = null;
-      setDashboardPhase('active');
     };
-  }, [fadeHideMs]);
+  }, [fadeHideMs, startPhase]);
 
   useEffect(() => {
     wakeCycleRef.current?.setSuspended(showAdminPanel || screensaverActive);
