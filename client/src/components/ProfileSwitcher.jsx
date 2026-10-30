@@ -4,6 +4,7 @@ import { Avatar, Box, Button, Typography } from '@mui/material';
 import { API_BASE_URL } from '../utils/apiConfig.js';
 import { getDeviceApiBase } from '../utils/deviceName.js';
 import { saveAppearanceFields } from '../utils/appearanceSave.js';
+import { WAKE_PROFILE_PICK_EVENT } from '../utils/idleFade.js';
 import WallpaperPicker from './WallpaperPicker.jsx';
 
 // "Who is looking" for this display: a chip per family member whose
@@ -23,7 +24,7 @@ const DEVICE_SETTINGS_UPDATED_EVENT = 'homeglow:device-settings-updated';
 const DEVICE_CONFIG_UPDATED_EVENT = 'homeglow:device-config-updated';
 const PLUGIN_ID = 'wallpaper-engine';
 
-function backgroundFor(pkg) {
+export function backgroundFor(pkg) {
   if (!pkg) return null;
   if (pkg.type === 'video' && pkg.video) return { kind: 'video', src: pkg.video, poster: pkg.preview || undefined };
   // A scene plays its animated rebuild when one exists; the
@@ -42,7 +43,7 @@ function backgroundFor(pkg) {
 // serves it (users.profile_picture relative to /Uploads/users/, or a
 // data URL). Null when the member has no photo; the circle then falls
 // back to their initial.
-function profilePhotoUrl(user) {
+export function profilePhotoUrl(user) {
   const pic = user?.profile_picture;
   if (!pic) return null;
   return pic.startsWith('data:') ? pic : `${API_BASE_URL}/Uploads/users/${pic}`;
@@ -132,6 +133,26 @@ export default function ProfileSwitcher({ appearance, faded = false }) {
       void applyProfileSetup(entry.user.id);
     }
   };
+
+  // The wake picker (components/WakePicker.jsx) shows the same
+  // members big, over the idle wallpaper. A pick there arrives as a
+  // window event with the member's user id and runs through this
+  // exact apply path, so waking into a side and tapping its circle
+  // here can never drift apart. Refs keep the listener bound once
+  // while always seeing the latest members and apply.
+  const membersRef = React.useRef(members);
+  membersRef.current = members;
+  const applyRef = React.useRef(apply);
+  applyRef.current = apply;
+
+  useEffect(() => {
+    const onWakePick = (event) => {
+      const entry = membersRef.current.find((m) => m.user.id === event.detail?.userId);
+      if (entry) applyRef.current(entry);
+    };
+    window.addEventListener(WAKE_PROFILE_PICK_EVENT, onWakePick);
+    return () => window.removeEventListener(WAKE_PROFILE_PICK_EVENT, onWakePick);
+  }, []);
 
   const chipSx = (isActive, accent) => ({
     minHeight: 44,

@@ -11,6 +11,7 @@ import TabBar from './components/TabBar.jsx';
 import ScreensaverCountdown from './components/ScreensaverCountdown.jsx';
 import UpdateIndicator from './components/UpdateIndicator.jsx';
 import ProfileSwitcher from './components/ProfileSwitcher.jsx';
+import WakePicker from './components/WakePicker.jsx';
 import { API_BASE_URL } from './utils/apiConfig.js';
 import { migrateLegacyPluginStorage } from './utils/pluginLocalStore.js';
 import { getDeviceApiBase, getDeviceName } from './utils/deviceName.js';
@@ -26,7 +27,7 @@ import {
   dockHideTimeoutMs,
   wantsActivityListeners,
 } from './utils/dockIdleHide.js';
-import { idleFadeTimeoutMs } from './utils/idleFade.js';
+import { createIdleWakeCycle, idleFadeTimeoutMs, WAKE_PROFILE_PICK_EVENT } from './utils/idleFade.js';
 import {
   BLOCK_PINCH_TOUCH_ACTION,
   attachTwoFingerSwipe,
@@ -1031,29 +1032,43 @@ const App = () => {
     dockIdleRef.current?.setSuspended(showAdminPanel);
   }, [showAdminPanel]);
 
-  // Idle fade (fork, utils/idleFade.js): after 2 idle minutes the whole
-  // dashboard melts away to just the animated wallpaper, screensaver
-  // style, and any activity brings it back. Same timer machinery as
-  // the dock hide. Suspended while Admin is open or the real
+  // Idle fade + wake picker (fork, utils/idleFade.js): after 2 idle
+  // minutes the whole dashboard melts away to just the animated
+  // wallpaper, screensaver style. Waking it does NOT bring the
+  // dashboard back: the wake cycle offers the profile picker, and
+  // only tapping a member's circle loads their side and returns to
+  // the dashboard. dashboardIdle covers both non-active phases, so
+  // the switcher row, the grid and the dock stay melted in the
+  // picker too. Suspended while Admin is open or the real
   // screensaver is up, since both own the screen then.
   const fadeHideMs = idleFadeTimeoutMs({ isMobile });
-  const [dashboardIdle, setDashboardIdle] = useState(false);
-  const fadeIdleRef = useRef(null);
+  const [dashboardPhase, setDashboardPhase] = useState('active');
+  const dashboardIdle = dashboardPhase !== 'active';
+  const wakeCycleRef = useRef(null);
 
   useEffect(() => {
-    const timer = createDockIdleTimer({ timeoutMs: fadeHideMs, onChange: setDashboardIdle });
-    fadeIdleRef.current = timer;
-    timer.setSuspended(showAdminPanelRef.current || screensaverActiveRef.current);
+    const cycle = createIdleWakeCycle({ idleTimeoutMs: fadeHideMs, onChange: setDashboardPhase });
+    wakeCycleRef.current = cycle;
+    cycle.setSuspended(showAdminPanelRef.current || screensaverActiveRef.current);
     return () => {
-      timer.dispose();
-      fadeIdleRef.current = null;
-      setDashboardIdle(false);
+      cycle.dispose();
+      wakeCycleRef.current = null;
+      setDashboardPhase('active');
     };
   }, [fadeHideMs]);
 
   useEffect(() => {
-    fadeIdleRef.current?.setSuspended(showAdminPanel || screensaverActive);
+    wakeCycleRef.current?.setSuspended(showAdminPanel || screensaverActive);
   }, [showAdminPanel, screensaverActive]);
+
+  // A pick in the wake picker: the profile switcher owns loading a
+  // member's side, so the pick goes out as an event it listens for;
+  // the cycle returns to active either way (a member with no side
+  // to load just gets the dashboard back).
+  const handleWakePick = (userId) => {
+    window.dispatchEvent(new CustomEvent(WAKE_PROFILE_PICK_EVENT, { detail: { userId } }));
+    wakeCycleRef.current?.choose();
+  };
 
   // Dimming pauses while Admin is open, like the dock idle timer above:
   // Admin must stay readable, and the idle clock restarts from closing.
@@ -1109,7 +1124,7 @@ const App = () => {
 
     const handleActivity = () => {
       dockIdleRef.current?.poke();
-      fadeIdleRef.current?.poke();
+      wakeCycleRef.current?.poke();
       if (!screensaverSettingsRef.current.enabled || screensaverActiveRef.current) return;
       lastActivityRef.current = Date.now();
       startInactivityTimer();
@@ -1551,6 +1566,15 @@ const App = () => {
         {/* Per-member look for this display: chips that swap the
             background and palette to one member's wallpaper. */}
         {!showAdminPanel && !screensaverActive && <ProfileSwitcher appearance={appearance} faded={dashboardIdle} />}
+        {/* Waking the idle wallpaper lands here, not on the dashboard:
+            big profile circles only, and a tap loads that side. */}
+        {!showAdminPanel && !screensaverActive && !isMobile && (
+          <WakePicker
+            visible={dashboardPhase === 'picker'}
+            onPick={handleWakePick}
+            onEmpty={() => wakeCycleRef.current?.choose()}
+          />
+        )}
         {/* Move/Resize ends here, not back in the dock (issue #333). */}
         {!isMobile && !widgetsLocked && !showAdminPanel && !screensaverActive && (
           <SaveLayoutButton onSave={toggleWidgetsLock} />
