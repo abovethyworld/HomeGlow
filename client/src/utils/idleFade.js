@@ -43,15 +43,21 @@ export const WAKE_PROFILE_PICK_EVENT = 'homeglow:wake-profile-pick';
 // Suspended (Admin open, screensaver up) pins the cycle to active,
 // like the dock timer, and a null idle timeout (phones) never leaves
 // active at all. onChange(phase) fires only when the phase flips.
+//
+// The cycle starts in initialPhase. The dashboard passes 'idle' on
+// desktop: Eden loads onto the wallpaper, not onto a dashboard
+// (Gavin's call), and the way in is always the picker. Suspension at
+// load (Admin open) still forces active, via setSuspended.
 export function createIdleWakeCycle({
   idleTimeoutMs,
   pickerTimeoutMs = WAKE_PICKER_TIMEOUT_MS,
+  initialPhase = 'active',
   onChange,
   setTimer = setTimeout,
   clearTimer = clearTimeout,
 }) {
   let timer = null;
-  let phase = 'active';
+  let phase = initialPhase === 'idle' ? 'idle' : 'active';
   let suspended = false;
 
   const set = (next) => {

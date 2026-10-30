@@ -67,6 +67,37 @@ describe('idle wake cycle', () => {
     expect(phases).toEqual(['idle', 'picker', 'active', 'idle']);
   });
 
+  it('can start at idle, as the dashboard does on page load: wallpaper first, picker on activity', () => {
+    const phases = [];
+    const cycle = createIdleWakeCycle({
+      idleTimeoutMs: 120_000,
+      pickerTimeoutMs: 30_000,
+      initialPhase: 'idle',
+      onChange: (phase) => phases.push(phase),
+    });
+    // Already idle: nothing fires, and idle itself runs no clock.
+    expect(phases).toEqual([]);
+    vi.advanceTimersByTime(10 * 60_000);
+    expect(phases).toEqual([]);
+    cycle.poke();
+    expect(phases).toEqual(['picker']);
+    cycle.choose();
+    expect(phases).toEqual(['picker', 'active']);
+    vi.advanceTimersByTime(120_000);
+    expect(phases).toEqual(['picker', 'active', 'idle']);
+  });
+
+  it('suspension at load still forces active from an idle start, as with Admin open', () => {
+    const phases = [];
+    const cycle = createIdleWakeCycle({
+      idleTimeoutMs: 120_000,
+      initialPhase: 'idle',
+      onChange: (phase) => phases.push(phase),
+    });
+    cycle.setSuspended(true);
+    expect(phases).toEqual(['active']);
+  });
+
   it('sleepNow drops straight to idle without waiting, and the next activity opens the picker', () => {
     const { cycle, phases } = start();
     cycle.sleepNow();
