@@ -146,6 +146,13 @@ export default function ProfileSwitcher({ appearance }) {
         // When the chips wrap on a narrow screen the row grows taller
         // and pushes the grid down with it. It used to be position:fixed
         // at the top-right corner, floating over the first widget row.
+        // position:relative + zIndex keeps the row IN flow (it still
+        // reserves its height) while painting above the wallpaper
+        // background layers (video/scene), which are position:fixed
+        // with no zIndex and would otherwise cover a plain row: the
+        // first in-flow version was invisible under the scene image.
+        position: 'relative',
+        zIndex: 1100,
         display: 'flex',
         gap: 1,
         flexWrap: 'wrap',
