@@ -67,6 +67,8 @@
     "clamRewardFailed": "No se pudo guardar la recompensa. Inténtalo de nuevo.",
     "choreSoundsSaved": "Ajustes de sonido de tareas guardados.",
     "choreSoundsFailed": "No se pudieron guardar los ajustes de sonido.",
+    "choreSettingsSaved": "Ajustes de tareas guardados.",
+    "choreSettingsFailed": "No se pudieron guardar los ajustes de tareas.",
     "widgetNeedsTab": "Cada widget activado debe tener al menos una pestaña seleccionada.",
     "widgetSettingsSaved": "Ajustes de widgets guardados correctamente.",
     "widgetSettingsFailed": "No se pudieron guardar los ajustes de widgets. Inténtalo de nuevo.",
@@ -100,7 +102,7 @@
     "setupDeleteFailed": "No se pudo eliminar la configuración. Inténtalo de nuevo.",
     "screensaverSaved": "Ajustes del salvapantallas guardados para esta pantalla.",
     "screensaverFailed": "No se pudieron guardar los ajustes del salvapantallas. Inténtalo de nuevo.",
-    "vacationSaved": "Ajustes del modo vacaciones guardados para esta pantalla.",
+    "vacationSaved": "Modo vacaciones guardado para todo el hogar.",
     "vacationFailed": "No se pudieron guardar los ajustes del modo vacaciones. Inténtalo de nuevo.",
     "autoDarkNeedsLocation": "El modo automático necesita una ubicación para calcular el amanecer y el atardecer.",
     "userDeleteFailed": "No se pudo eliminar a la persona. Inténtalo de nuevo.",
@@ -133,7 +135,10 @@
     "enter": "Introduce el PIN de administrador",
     "update": "Cambiar el PIN de administrador",
     "setPin": "Configurar el PIN de administrador",
-    "forgetDevices": "Volver a exigir el PIN en todos los dispositivos"
+    "forgetDevices": "Volver a exigir el PIN en todos los dispositivos",
+    "currentForChange": "Introduce el PIN actual",
+    "currentForRemove": "Introduce el PIN para eliminarlo",
+    "currentWrong": "Ese no es el PIN actual."
   },
   "refresh": {
     "disabled": "Desactivado",
@@ -311,7 +316,7 @@
     },
     "coffeeTableRate": "Segundos entre fotos",
     "photoDetails": "Mostrar detalles de las fotos",
-    "photoDetailsHelp": "Cuándo se tomó, quién aparece y dónde, en cada foto, en la medida en que la foto lo indique. Las fotos de Immich pueden mostrar las tres cosas; las de Google Fotos, solo la fecha.",
+    "photoDetailsHelp": "Cuándo se tomó, quién aparece y dónde, en cada foto, en la medida en que la foto lo indique. Las fotos de Immich pueden mostrar las tres cosas; las subidas, la fecha y el lugar; las de Google Fotos, solo la fecha.",
     "expand": {
       "heading": "Ampliar widgets",
       "enable": "Permitir ampliar widgets",
@@ -486,7 +491,8 @@
     "requirements": "Requisitos del PIN:",
     "currentStatus": "Estado actual:",
     "removePin": "Eliminar el PIN",
-    "changeNote": "Si cambias el PIN, tendrás que usar el nuevo la próxima vez que accedas al panel."
+    "changeNote": "Si cambias el PIN, tendrás que usar el nuevo la próxima vez que accedas al panel.",
+    "forgotPin": "¿Has olvidado el PIN? Solo se puede restablecer en el propio servidor: consulta «Restablecer un PIN de administrador olvidado» en la guía de despliegue."
   },
   "controls": {
     "heading": "Controles en las pantallas",
@@ -804,6 +810,9 @@
     "layoutList": "Lista",
     "columns": "Mosaicos por fila",
     "columnsAuto": "Ajustar al widget",
+    "style": "Aspecto",
+    "styles": { "classic": "Clásico", "bold": "Destacado" },
+    "animate": "Animar los iconos cuando estén encendidos",
     "addEntities": "Añadir dispositivos",
     "addEntitiesHelp": "Busca por nombre o explora por zonas. Cada uno se convierte en un mosaico.",
     "noArea": "Sin zona",
@@ -830,12 +839,21 @@
     "moveDown": "Bajar",
     "remove": "Quitar",
     "preview": "Vista previa",
-    "previewSizes": {
-      "small": "Pequeño",
-      "medium": "Mediano",
-      "large": "Grande"
+    "tileSizes": { "fx1": "Ancho completo", "fx2": "Ancho completo × 2" },
+    "widgetSize": {
+      "title": "Tamaño en el panel",
+      "width": "Ancho",
+      "height": "Alto",
+      "columns_one": "{{count}} columna",
+      "columns_other": "{{count}} columnas",
+      "rows_one": "{{count}} fila",
+      "rows_other": "{{count}} filas",
+      "best_one": "{{count}} mosaico cabe mejor en {{w}} × {{h}}",
+      "best_other": "{{count}} mosaicos caben mejor en {{w}} × {{h}}",
+      "resizePlaced": "Cambiar también su tamaño donde ya está en el panel",
+      "help": "Cuadros de la cuadrícula, 12 columnas de ancho. Unos {{width}} × {{height}} píxeles en esta pantalla. Un panel nuevo empieza con este tamaño. Sus controles funcionan una vez guardado.",
+      "shrunk": "Mostrado al {{percent}} %."
     },
-    "previewHelp": "El panel tal como se ve ahora, en tres tamaños de widget. Sus controles funcionan una vez guardado.",
     "save": "Guardar panel",
     "history": {
       "title": "Lo que hicieron los paneles",

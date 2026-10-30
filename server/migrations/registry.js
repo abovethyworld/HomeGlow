@@ -40,4 +40,10 @@ module.exports = [
   { schemaId: 37, migrationPath: './migrations/schema37-patternOwnership', },
   { schemaId: 38, migrationPath: './migrations/schema38-deviceSetups', },
   { schemaId: 39, migrationPath: './migrations/schema39-setupChoreWidgetSettings', },
+  // Upstream's photoDetails arrived as their schema 37 after this fork had
+  // already shipped 37-39 under the same numbers. It runs as 40 here: the
+  // runner applies migrations above a database's stored schema id, and
+  // Eden's databases already sit at 39 with the fork's 37-39 applied.
+  // Later upstream migrations get renumbered the same way at sync time.
+  { schemaId: 40, migrationPath: './migrations/schema40-photoDetails', },
 ];

@@ -317,6 +317,35 @@ new zips by drop or file pick.
   fixed template was copied into the running frontend container,
   which regenerates its config from it on start.
 
+## Upstream sync (Oct 30, 2026)
+
+This fork stays synced with upstream on purpose (Gavin's call):
+upstream's fixes and features keep flowing in, and the fork's own
+changes stay a layer on top instead of a diverging rewrite. The
+Oct 30 sync merged 23 upstream commits (Admin Panel redesign,
+chore schedules by person with a week calendar, routine step
+improvements, photo taken-on/place details, an Admin PIN fix).
+Only three files conflicted.
+
+Sync rules this merge established:
+
+- Migration numbers: upstream's photoDetails arrived as their
+  schema 37 after this fork had shipped 37 to 39 under the same
+  numbers, so it runs here as schema 40
+  (server/migrations/schema40-photoDetails.js). The runner applies
+  migrations above a database's stored schema id, and Eden's
+  database already sat at 39. Later upstream migrations get
+  renumbered the same way at sync time.
+- The fork's own migrations must stay re-runnable: upstream's
+  timezone upgrade test rewinds a database to schema 25 and boots
+  it again. schema39 now checks PRAGMA table_info before its
+  ALTER TABLE, like upstream's migrations do (37 and 38 already
+  guarded theirs).
+- Admin Panel: the redesign's structure wins. The fork's Device
+  Setups block moved into the redesigned Devices section as-is
+  (its table markup predates the redesign; restyling it to
+  AdminRow is cosmetic follow-up, not a merge blocker).
+
 ## Planned (not built yet)
 
 Nothing at the moment.

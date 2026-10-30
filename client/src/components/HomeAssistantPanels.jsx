@@ -3,7 +3,7 @@ import axios from 'axios';
 import {
   Alert, Autocomplete, Box, Button, Chip, Collapse, Dialog, DialogActions, DialogContent, DialogTitle, Divider,
   FormControl, FormControlLabel, IconButton, InputLabel, Menu, MenuItem, Select, Switch, Table, TableBody, TableCell,
-  TableHead, TableRow, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography,
+  TableHead, TableRow, TextField, Tooltip, Typography,
 } from '@mui/material';
 import {
   Add, ArrowDownward, ArrowUpward, ContentCopy, Delete, Edit, ExpandLess, ExpandMore, FileUpload, Home, Save,
@@ -13,12 +13,35 @@ import AdminFormSection from './AdminFormSection';
 import { API_BASE_URL } from '../utils/apiConfig.js';
 import { ThemeContext } from '../themes/engine/ThemeContext.js';
 import { buildPluginThemeMessage, readRoleTokens } from '../utils/pluginThemeBridge.js';
+import { readGridMetrics } from '../utils/gridMetrics.js';
+import { getDeviceName } from '../utils/deviceName.js';
+import { checkHouseholdChanges } from '../utils/householdChanges.js';
 import {
-  COLUMN_CHOICES, MAX_TILES, TILE_SIZES, addTiles, blankRecipe, domainOf, exportRecipe, moveTile, parseImport,
-  recipeFromArea, suggestedStates, tileTitle, unknownEntities,
+  COLUMN_CHOICES, MAX_TILES, PREVIEW_GAP, STYLE_CHOICES, TILE_SIZES, WIDGET_MAX_H, WIDGET_MAX_W, addTiles, blankRecipe, domainOf,
+  exportRecipe, moveTile, parseImport, previewLayout, recipeFromArea, suggestedStates, suggestedWidgetSize, tileTitle, unknownEntities,
+  widgetPixels, widgetSizeOf,
 } from '../utils/haPanelBuilder.js';
 
-const PREVIEW_SIZES = { small: [300, 220], medium: [460, 340], large: [720, 480] };
+// A tile editor's rows by the editors' own width (a container query on the
+// column around them), since beside a preview they are far narrower than
+// the screen. Label, icon and size: one column, then the label over the
+// other two, then all three on a line.
+const tileFieldColumns = {
+  gridTemplateColumns: '1fr',
+  '@container (min-width: 380px)': { gridTemplateColumns: '1fr 1fr', '& > :first-of-type': { gridColumn: '1 / -1' } },
+  '@container (min-width: 600px)': { gridTemplateColumns: '2fr 1fr 1fr', '& > :first-of-type': { gridColumn: 'auto' } },
+};
+// "Show only when": the entity, its states and Not.
+const conditionColumns = {
+  gridTemplateColumns: '1fr',
+  '@container (min-width: 600px)': { gridTemplateColumns: '1fr 1fr auto' },
+};
+
+// The preview is drawn at the panel's real size, shrunk to fit this box.
+const PREVIEW_MAX = 480;
+// The width the size pickers need.
+const PICKER_MIN_WIDTH = 260;
+const range = (n) => Array.from({ length: n }, (_, i) => i + 1);
 const previewOrigin = () => new URL(API_BASE_URL || '/', window.location.href).origin;
 const readColor = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
@@ -41,14 +64,25 @@ const HomeAssistantPanels = ({ onNavigate }) => {
   const [importState, setImportState] = useState(null); // { text, recipe, unknown, replacements, error }
   const [history, setHistory] = useState(null);
   const [showHistory, setShowHistory] = useState(false);
-  const [previewSize, setPreviewSize] = useState('medium');
   const frameRef = useRef(null);
+  // The builder's own width, not the screen's: inside the Admin Panel it is
+  // far narrower than the screen, so a screen breakpoint put a large preview
+  // beside the tile editors and left them no room (previewLayout).
+  const [builderEl, setBuilderEl] = useState(null);
+  const [builderWidth, setBuilderWidth] = useState(0);
+  useEffect(() => {
+    if (!builderEl) return undefined;
+    const observer = new ResizeObserver(([entry]) => setBuilderWidth(Math.floor(entry.contentRect.width)));
+    observer.observe(builderEl);
+    return () => observer.disconnect();
+  }, [builderEl]);
 
   const entitiesById = useMemo(() => new Map(entities.map((entity) => [entity.entity_id, entity])), [entities]);
 
   const load = useCallback(async () => {
     try {
-      const { data } = await axios.get(`${API_BASE_URL}/api/ha-panels`);
+      // This display's name: a panel's size picker starts from its size here.
+      const { data } = await axios.get(`${API_BASE_URL}/api/ha-panels`, { params: { device: getDeviceName() || undefined } });
       setInfo(data);
       return data;
     } catch (error) {
@@ -111,6 +145,16 @@ const HomeAssistantPanels = ({ onNavigate }) => {
   }));
   const removeTile = (index) => setDraft((prev) => ({ ...prev, recipe: { ...prev.recipe, tiles: prev.recipe.tiles.filter((_, i) => i !== index) } }));
 
+  // The size picker starts at the size the panel really has on the dashboard
+  // when it is placed, so changing it there is a change.
+  const editPanel = (panel) => {
+    const placed = panel.placed && Number.isInteger(panel.placed.w) && Number.isInteger(panel.placed.h)
+      ? { w: Math.min(WIDGET_MAX_W, panel.placed.w), h: Math.min(WIDGET_MAX_H, panel.placed.h) }
+      : null;
+    const recipe = placed ? { ...panel.recipe, widget: placed } : panel.recipe;
+    setDraft({ id: panel.id, recipe, placedSize: placed, resizePlaced: true });
+  };
+
   const startNew = (recipe = blankRecipe(t('admin:haPanels.defaultName'))) => {
     setErrors([]);
     setMessage(null);
@@ -121,12 +165,18 @@ const HomeAssistantPanels = ({ onNavigate }) => {
     setSaving(true);
     setErrors([]);
     try {
-      const payload = { recipe: draft.recipe };
+      // The size is saved as picked, or as the best fit when none was.
+      const size = widgetSizeOf(draft.recipe);
+      const resized = !!draft.id && !!draft.placedSize && (draft.placedSize.w !== size.w || draft.placedSize.h !== size.h);
+      const payload = { recipe: { ...draft.recipe, widget: size }, resize: resized && draft.resizePlaced !== false };
       const { data } = draft.id
         ? await axios.put(`${API_BASE_URL}/api/ha-panels/${draft.id}`, payload)
         : await axios.post(`${API_BASE_URL}/api/ha-panels`, payload);
       const isNew = !draft.id;
       setDraft(null);
+      // Resized where it is placed: redraw this display now rather than at
+      // the next check (every display gets it from household sync).
+      if (data.resized) void checkHouseholdChanges();
       await load();
       setMessage({ type: 'success', text: isNew ? t('admin:haPanels.savedNew', { name: data.panel.name }) : t('admin:haPanels.saved'), placeIt: isNew });
     } catch (error) {
@@ -262,7 +312,7 @@ const HomeAssistantPanels = ({ onNavigate }) => {
           <Tooltip title={t('admin:haPanels.moveDown')}><span><IconButton size="small" disabled={index === draft.recipe.tiles.length - 1} onClick={() => updateRecipe({ tiles: moveTile(draft.recipe.tiles, index, index + 1) })} aria-label={t('admin:haPanels.moveDown')}><ArrowDownward fontSize="small" /></IconButton></span></Tooltip>
           <Tooltip title={t('admin:haPanels.remove')}><IconButton size="small" onClick={() => removeTile(index)} aria-label={t('admin:haPanels.remove')}><Delete fontSize="small" /></IconButton></Tooltip>
         </Box>
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '2fr 1fr 1fr' }, gap: 1, mt: 1 }}>
+        <Box sx={{ display: 'grid', ...tileFieldColumns, gap: 1, mt: 1 }}>
           <TextField
             size="small"
             label={t('admin:haPanels.label')}
@@ -283,7 +333,7 @@ const HomeAssistantPanels = ({ onNavigate }) => {
           <FormControl size="small">
             <InputLabel>{t('admin:haPanels.size')}</InputLabel>
             <Select label={t('admin:haPanels.size')} value={tile.size || '1x1'} onChange={(e) => updateTile(index, { size: e.target.value })}>
-              {TILE_SIZES.map((size) => <MenuItem key={size} value={size}>{size.replace('x', '×')}</MenuItem>)}
+              {TILE_SIZES.map((size) => <MenuItem key={size} value={size}>{size[0] === 'f' ? t(`admin:haPanels.tileSizes.${size}`) : size.replace('x', '×')}</MenuItem>)}
             </Select>
           </FormControl>
         </Box>
@@ -310,7 +360,7 @@ const HomeAssistantPanels = ({ onNavigate }) => {
           />
         </Box>
         {tile.when && (
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr auto' }, gap: 1, mt: 1, alignItems: 'center' }}>
+          <Box sx={{ display: 'grid', ...conditionColumns, gap: 1, mt: 1, alignItems: 'center' }}>
             <Autocomplete
               size="small"
               options={sortedOptions.map((entity) => entity.entity_id)}
@@ -335,7 +385,22 @@ const HomeAssistantPanels = ({ onNavigate }) => {
     );
   };
 
-  const [previewWidth, previewHeight] = PREVIEW_SIZES[previewSize];
+  // The panel's size on the dashboard, and its preview: drawn at its real
+  // size in pixels, shrunk to fit PREVIEW_MAX when it is big, and placed
+  // beside the tile editors or above them by the builder's own width
+  // (previewLayout), scaling further when the builder is narrower still.
+  const widgetSize = draft ? widgetSizeOf(draft.recipe) : { w: 1, h: 1 };
+  const bestSize = draft ? suggestedWidgetSize(draft.recipe.tiles) : widgetSize;
+  const pixels = widgetPixels(widgetSize, typeof window !== 'undefined' ? window.innerWidth : undefined, readGridMetrics());
+  const fitScale = Math.min(1, PREVIEW_MAX / pixels.width, PREVIEW_MAX / pixels.height);
+  const previewWidth = Math.ceil(pixels.width * fitScale);
+  // The column also holds the size pickers, so it is never narrower than them.
+  const previewColumn = Math.max(previewWidth, PICKER_MIN_WIDTH);
+  const preview = previewLayout(builderWidth, [previewColumn]);
+  const previewScale = fitScale * preview.scale;
+  const shownWidth = previewColumn * preview.scale;
+  const sizeChanged = !!draft?.id && !!draft.placedSize && (draft.placedSize.w !== widgetSize.w || draft.placedSize.h !== widgetSize.h);
+  const setWidgetSize = (patch) => updateRecipe({ widget: { ...widgetSize, ...patch } });
 
   return (
     <AdminFormSection title={t('admin:haPanels.title')} subtitle={t('admin:haPanels.subtitle')}>
@@ -380,7 +445,7 @@ const HomeAssistantPanels = ({ onNavigate }) => {
                     <Typography sx={{ fontWeight: 600 }} noWrap>{panel.name}</Typography>
                     <Typography variant="caption" color="text.secondary">{t('admin:haPanels.tileCount', { count: panel.recipe.tiles.length })}</Typography>
                   </Box>
-                  <Tooltip title={t('admin:haPanels.edit')}><IconButton onClick={() => { setErrors([]); setDraft({ id: panel.id, recipe: panel.recipe }); }} aria-label={t('admin:haPanels.edit')}><Edit /></IconButton></Tooltip>
+                  <Tooltip title={t('admin:haPanels.edit')}><IconButton onClick={() => { setErrors([]); editPanel(panel); }} aria-label={t('admin:haPanels.edit')}><Edit /></IconButton></Tooltip>
                   <Tooltip title={t('admin:haPanels.duplicate')}><IconButton onClick={() => duplicate(panel)} aria-label={t('admin:haPanels.duplicate')}><ContentCopy /></IconButton></Tooltip>
                   <Tooltip title={t('admin:haPanels.export')}><IconButton onClick={() => copyRecipe(panel)} aria-label={t('admin:haPanels.export')}><FileUpload sx={{ transform: 'rotate(180deg)' }} /></IconButton></Tooltip>
                   <Tooltip title={t('admin:haPanels.delete')}><IconButton onClick={() => setConfirmDelete(panel)} aria-label={t('admin:haPanels.delete')}><Delete /></IconButton></Tooltip>
@@ -436,7 +501,7 @@ const HomeAssistantPanels = ({ onNavigate }) => {
       {draft && (
         <Box>
           {errors.length > 0 && <Alert severity="error" sx={{ mb: 2 }}>{errors.join(' ')}</Alert>}
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '2fr 1fr 1fr' }, gap: 1, mb: 2 }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '2fr 1fr 1fr 1fr' }, gap: 1, mb: (draft.recipe.style === 'bold' ? 1 : 2) }}>
             <TextField label={t('admin:haPanels.name')} value={draft.recipe.name} slotProps={{ htmlInput: { maxLength: 40 } }} onChange={(e) => updateRecipe({ name: e.target.value })} required />
             <FormControl>
               <InputLabel>{t('admin:haPanels.layout')}</InputLabel>
@@ -451,7 +516,20 @@ const HomeAssistantPanels = ({ onNavigate }) => {
                 {COLUMN_CHOICES.map((choice) => <MenuItem key={choice} value={choice}>{choice === 'auto' ? t('admin:haPanels.columnsAuto') : choice}</MenuItem>)}
               </Select>
             </FormControl>
+            <FormControl>
+              <InputLabel>{t('admin:haPanels.style')}</InputLabel>
+              <Select label={t('admin:haPanels.style')} value={draft.recipe.style || 'classic'} onChange={(e) => updateRecipe({ style: e.target.value })}>
+                {STYLE_CHOICES.map((choice) => <MenuItem key={choice} value={choice}>{t(`admin:haPanels.styles.${choice}`)}</MenuItem>)}
+              </Select>
+            </FormControl>
           </Box>
+          {draft.recipe.style === 'bold' && (
+            <FormControlLabel
+              sx={{ mb: 1 }}
+              control={<Switch checked={draft.recipe.animate !== false} onChange={(e) => updateRecipe({ animate: e.target.checked })} />}
+              label={t('admin:haPanels.animate')}
+            />
+          )}
 
           <Autocomplete
             multiple
@@ -476,28 +554,83 @@ const HomeAssistantPanels = ({ onNavigate }) => {
             sx={{ mb: 2 }}
           />
 
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1fr) auto' }, gap: 2, alignItems: 'start' }}>
-            <Box>
+          {/* The preview beside the tile editors when both fit, else above
+              them; the editors keep their room either way. */}
+          <Box
+            ref={setBuilderEl}
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: preview.beside ? `minmax(0, 1fr) ${previewColumn}px` : 'minmax(0, 1fr)',
+              gap: `${PREVIEW_GAP}px`,
+              alignItems: 'start',
+            }}
+          >
+            {/* A container, so a tile editor lays out by its own width. */}
+            <Box sx={{ order: preview.beside ? 0 : 1, minWidth: 0, containerType: 'inline-size' }}>
               {draft.recipe.tiles.length === 0 && <Typography color="text.secondary">{t('admin:haPanels.noTiles')}</Typography>}
               {draft.recipe.tiles.map(renderTileEditor)}
             </Box>
-            <Box sx={{ position: { lg: 'sticky' }, top: 8 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                <Typography variant="subtitle2" sx={{ flex: 1 }}>{t('admin:haPanels.preview')}</Typography>
-                <ToggleButtonGroup size="small" exclusive value={previewSize} onChange={(_, value) => value && setPreviewSize(value)}>
-                  {Object.keys(PREVIEW_SIZES).map((size) => <ToggleButton key={size} value={size}>{t(`admin:haPanels.previewSizes.${size}`)}</ToggleButton>)}
-                </ToggleButtonGroup>
+            <Box sx={{ minWidth: 0, ...(preview.beside && { position: 'sticky', top: 8 }) }}>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>{t('admin:haPanels.widgetSize.title')}</Typography>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1, mb: 1, maxWidth: shownWidth }}>
+                <FormControl size="small" sx={{ minWidth: 110 }}>
+                  <InputLabel>{t('admin:haPanels.widgetSize.width')}</InputLabel>
+                  <Select label={t('admin:haPanels.widgetSize.width')} value={widgetSize.w} onChange={(e) => setWidgetSize({ w: Number(e.target.value) })}>
+                    {range(WIDGET_MAX_W).map((n) => <MenuItem key={n} value={n}>{t('admin:haPanels.widgetSize.columns', { count: n })}</MenuItem>)}
+                  </Select>
+                </FormControl>
+                <Typography aria-hidden="true">×</Typography>
+                <FormControl size="small" sx={{ minWidth: 110 }}>
+                  <InputLabel>{t('admin:haPanels.widgetSize.height')}</InputLabel>
+                  <Select label={t('admin:haPanels.widgetSize.height')} value={widgetSize.h} onChange={(e) => setWidgetSize({ h: Number(e.target.value) })}>
+                    {range(WIDGET_MAX_H).map((n) => <MenuItem key={n} value={n}>{t('admin:haPanels.widgetSize.rows', { count: n })}</MenuItem>)}
+                  </Select>
+                </FormControl>
+                {(bestSize.w !== widgetSize.w || bestSize.h !== widgetSize.h) && (
+                  <Chip
+                    size="small"
+                    variant="outlined"
+                    clickable
+                    onClick={() => updateRecipe({ widget: bestSize })}
+                    label={t('admin:haPanels.widgetSize.best', { count: draft.recipe.tiles.length, w: bestSize.w, h: bestSize.h })}
+                  />
+                )}
               </Box>
-              <Box sx={{ width: previewWidth, maxWidth: '100%', height: previewHeight, border: '1px solid var(--card-border)', borderRadius: 'var(--hg-frame-radius, 16px)', background: 'var(--hg-frame-bg, var(--card-bg))', overflow: 'hidden' }}>
-                <iframe
-                  ref={frameRef}
-                  title={t('admin:haPanels.preview')}
-                  src={`${API_BASE_URL}/ha-panels/preview?lang=${encodeURIComponent(i18n.language || 'en')}`}
-                  onLoad={postPreview}
-                  style={{ width: '100%', height: '100%', border: 0, display: 'block' }}
+              {sizeChanged && (
+                <FormControlLabel
+                  sx={{ display: 'flex', mb: 1, maxWidth: shownWidth }}
+                  control={<Switch size="small" checked={draft.resizePlaced !== false} onChange={(e) => setDraft((prev) => ({ ...prev, resizePlaced: e.target.checked }))} />}
+                  label={t('admin:haPanels.widgetSize.resizePlaced')}
                 />
+              )}
+              {/* Drawn at the widget's real size and scaled as a whole to
+                  fit, so the tiles wrap as they will on the dashboard. */}
+              <Box sx={{ width: pixels.width * previewScale, height: pixels.height * previewScale, overflow: 'hidden' }}>
+                <Box
+                  sx={{
+                    width: pixels.width,
+                    height: pixels.height,
+                    transform: previewScale < 1 ? `scale(${previewScale})` : 'none',
+                    transformOrigin: 'top left',
+                    border: '1px solid var(--card-border)',
+                    borderRadius: 'var(--hg-frame-radius, 16px)',
+                    background: 'var(--hg-frame-bg, var(--card-bg))',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <iframe
+                    ref={frameRef}
+                    title={t('admin:haPanels.preview')}
+                    src={`${API_BASE_URL}/ha-panels/preview?lang=${encodeURIComponent(i18n.language || 'en')}`}
+                    onLoad={postPreview}
+                    style={{ width: '100%', height: '100%', border: 0, display: 'block' }}
+                  />
+                </Box>
               </Box>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, maxWidth: previewWidth }}>{t('admin:haPanels.previewHelp')}</Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, maxWidth: shownWidth }}>
+                {t('admin:haPanels.widgetSize.help', { width: Math.round(pixels.width), height: Math.round(pixels.height) })}
+                {previewScale < 1 ? ` ${t('admin:haPanels.widgetSize.shrunk', { percent: Math.round(previewScale * 100) })}` : ''}
+              </Typography>
             </Box>
           </Box>
 

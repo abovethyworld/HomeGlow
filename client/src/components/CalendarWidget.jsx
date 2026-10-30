@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Card, Typography, Box, List, ListItem, ListItemText, Dialog, DialogTitle, DialogContent, DialogActions, Button, ButtonBase, IconButton, Popover, ToggleButton, ToggleButtonGroup, TextField, Switch, Checkbox, FormControlLabel, Select, MenuItem, FormControl, InputLabel, Chip, Divider, CircularProgress, LinearProgress, Alert, Tooltip } from '@mui/material';
-import { Settings, ViewModule, ViewWeek, ChevronLeft, ChevronRight, Add, Delete, Edit, Refresh, Remove, Sync, Schedule, Today } from '@mui/icons-material';
+import { Card, Typography, Box, List, ListItem, ListItemText, Dialog, DialogTitle, DialogContent, DialogActions, Button, ButtonBase, IconButton, Popover, TextField, Switch, Checkbox, FormControlLabel, Select, MenuItem, FormControl, InputLabel, Chip, Divider, CircularProgress, LinearProgress, Alert, Tooltip } from '@mui/material';
+import { ChevronLeft, ChevronRight, Add, Delete, Edit, Refresh, Remove, Sync, Schedule, CalendarMonthOutlined, ViewModuleOutlined, ViewWeekOutlined, SettingsOutlined, TodayOutlined } from '@mui/icons-material';
+import WidgetHeader, { widgetHeaderTitleSx, headerIconButtonSx } from './WidgetHeader.jsx';
 import moment from 'moment';
 import { SketchPicker } from 'react-color';
 import axios from 'axios';
@@ -101,16 +102,19 @@ const compareByDurationThenStart = (a, b) => {
 
 // Greedy first-fit lane packing: each event drops into the first lane whose
 // events it doesn't overlap; otherwise a new lane opens. Returns the number of
-// lanes used and a lookup from an event to its lane index.
-const packEventsIntoLanes = (events) => {
+// lanes used and a lookup from an event to its lane index. `range` gives the
+// span to compare; the default is the event's own start and end.
+const eventTimes = (event) => [moment(event.start), moment(event.end)];
+const packEventsIntoLanes = (events, range = eventTimes) => {
   const lanes = [];
   events.forEach((event) => {
     let placed = false;
+    const [start, end] = range(event);
     for (let s = 0; s < lanes.length; s++) {
-      const overlaps = lanes[s].some((laneEvent) =>
-        moment(event.start).isBefore(moment(laneEvent.end)) &&
-        moment(event.end).isAfter(moment(laneEvent.start))
-      );
+      const overlaps = lanes[s].some((laneEvent) => {
+        const [laneStart, laneEnd] = range(laneEvent);
+        return start.isBefore(laneEnd) && end.isAfter(laneStart);
+      });
       if (!overlaps) {
         lanes[s].push(event);
         placed = true;
@@ -1142,20 +1146,20 @@ const CalendarWidget = ({
       return eventStart.isSameOrBefore(weekEnd) && eventEnd.isSameOrAfter(weekStart);
     });
 
-    const multiDayEvents = weekEvents
-      .filter(e => isMultiDaySpanning(e))
-      .sort(compareByDurationThenStart);
+    // Multi-day bars first, longest first, then single-day all-day events in
+    // the gaps they leave, so a week with one of each needs one row, not two.
+    // Lanes are compared by whole days: two events that only touch on a day
+    // would otherwise share a lane and draw over each other in that column.
+    const laneEvents = [
+      ...weekEvents.filter(e => isMultiDaySpanning(e)).sort(compareByDurationThenStart),
+      ...weekEvents.filter(e => e.all_day && !isMultiDaySpanning(e)).sort((a, b) => moment(a.start) - moment(b.start)),
+    ];
+    const wholeDays = (e) => [moment(e.start).startOf('day'), moment(e.end).endOf('day')];
 
-    const { laneCount: multiDaySlotCount, getLane: getMultiDaySlot } = packEventsIntoLanes(multiDayEvents);
+    const { laneCount: multiDaySlotCount, getLane: getMultiDaySlot } = packEventsIntoLanes(laneEvents, wholeDays);
 
     return dates.map(date => {
-      const dayMultiDay = multiDayEvents.filter(e => eventSpansDay(e, date));
-      const dayAllDaySingle = weekEvents.filter(e => {
-        if (!isMultiDaySpanning(e)) {
-          return e.all_day && eventSpansDay(e, date);
-        }
-        return false;
-      });
+      const dayMultiDay = laneEvents.filter(e => eventSpansDay(e, date));
       const dayTimed = weekEvents.filter(e => {
         return !e.all_day && !isMultiDaySpanning(e) && eventSpansDay(e, date);
       }).sort((a, b) => a.start - b.start);
@@ -1173,7 +1177,6 @@ const CalendarWidget = ({
         isToday: moment(date).isSame(moment(new Date()), 'day'),
         multiDaySlottedRows,
         multiDaySlotCount,
-        allDaySingleEvents: dayAllDaySingle,
         timedEvents: dayTimed,
       };
     });
@@ -1329,89 +1332,94 @@ const CalendarWidget = ({
           sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2 }}
         />
       )}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <IconButton
-            onClick={handlePreviousPeriod}
-            size="small"
-            sx={{ color: 'var(--text)' }}
-            aria-label={t('calendar:widget.previousPeriod')}
-          >
-            <ChevronLeft />
-          </IconButton>
-          {/* The period label doubles as the go-to-today control: on a phone this is the only Today affordance, and on
-              desktop the icon button below keeps it discoverable. */}
+      <WidgetHeader
+        icon={<CalendarMonthOutlined />}
+        title={(
+          /* The period label doubles as the go-to-today control: on a phone this is the only Today affordance, and on
+              desktop the icon button below keeps it discoverable. */
           <Tooltip title={t('calendar:widget.goToToday')}>
             <ButtonBase
               onClick={goToToday}
               aria-label={t('calendar:widget.goToToday')}
               sx={{
-                minWidth: { xs: 0, sm: '200px' },
                 borderRadius: 'var(--hg-radius-sm)',
-                px: 1,
-                py: 0.5,
+                px: 0.5,
+                py: 0.25,
                 color: 'var(--text)',
                 '&:hover': {
                   backgroundColor: 'rgba(var(--accent-rgb), 0.08)',
                 },
               }}
             >
-              <Typography variant="h6" component="span" sx={{ textAlign: 'center' }}>
-                {isMobile ? '' : '📅 '}{getCurrentPeriodLabel()}
+              <Typography variant="h6" component="h2" sx={{ ...widgetHeaderTitleSx, fontVariantNumeric: 'tabular-nums' }}>
+                {getCurrentPeriodLabel()}
               </Typography>
             </ButtonBase>
           </Tooltip>
+        )}
+        afterTitle={(
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <IconButton
+              onClick={handlePreviousPeriod}
+              size="small"
+              sx={headerIconButtonSx}
+              aria-label={t('calendar:widget.previousPeriod')}
+            >
+              <ChevronLeft />
+            </IconButton>
+            <IconButton
+              onClick={handleNextPeriod}
+              size="small"
+              sx={headerIconButtonSx}
+              aria-label={t('calendar:widget.nextPeriod')}
+            >
+              <ChevronRight />
+            </IconButton>
+            <Tooltip title={t('calendar:widget.goToToday')}>
+              {/* Desktop-only redundant affordance: on phones the label above is
+                  the control, but a tappable heading isn't self-evidently
+                  tappable, so keep the icon visible from `sm` up. */}
+              <IconButton
+                onClick={goToToday}
+                size="small"
+                sx={{ ...headerIconButtonSx, display: { xs: 'none', sm: 'inline-flex' } }}
+                aria-label={t('calendar:widget.goToToday')}
+              >
+                <TodayOutlined />
+              </IconButton>
+            </Tooltip>
+          </Box>
+        )}
+      >
+        <IconButton
+          onClick={() => handleViewModeChange(null, 'month')}
+          size="small"
+          sx={headerIconButtonSx}
+          aria-label={t('calendar:widget.monthView')}
+          aria-pressed={viewMode === 'month'}
+        >
+          <ViewModuleOutlined />
+        </IconButton>
+        <IconButton
+          onClick={() => handleViewModeChange(null, 'week')}
+          size="small"
+          sx={headerIconButtonSx}
+          aria-label={t('calendar:widget.weekView')}
+          aria-pressed={viewMode === 'week'}
+        >
+          <ViewWeekOutlined />
+        </IconButton>
+        {!hideCalendarSettings && (
           <IconButton
-            onClick={handleNextPeriod}
+            onClick={handleSettingsClick}
             size="small"
-            sx={{ color: 'var(--text)' }}
-            aria-label={t('calendar:widget.nextPeriod')}
+            sx={headerIconButtonSx}
+            aria-label={t('calendar:widget.openSettings')}
           >
-            <ChevronRight />
+            <SettingsOutlined />
           </IconButton>
-          <Tooltip title={t('calendar:widget.goToToday')}>
-            {/* Desktop-only redundant affordance: on phones the label above is
-                the control, but a tappable heading isn't self-evidently
-                tappable, so keep the icon visible from `sm` up. */}
-            <IconButton
-              onClick={goToToday}
-              size="small"
-              sx={{ display: { xs: 'none', sm: 'inline-flex' }, color: 'var(--text)' }}
-              aria-label={t('calendar:widget.goToToday')}
-            >
-              <Today />
-            </IconButton>
-          </Tooltip>
-        </Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <ToggleButtonGroup
-            value={viewMode}
-            exclusive
-            onChange={handleViewModeChange}
-            size="small"
-            sx={{
-              '& .MuiToggleButton-root': { color: 'var(--text)', borderColor: 'var(--card-border)' },
-              '& .MuiToggleButton-root.Mui-selected': { color: 'var(--text)', backgroundColor: 'rgba(var(--accent-rgb), 0.15)' },
-            }}
-          >
-            <ToggleButton value="month" aria-label={t('calendar:widget.monthView')}>
-              <ViewModule />
-            </ToggleButton>
-            <ToggleButton value="week" aria-label={t('calendar:widget.weekView')}>
-              <ViewWeek />
-            </ToggleButton>
-          </ToggleButtonGroup>
-          {!hideCalendarSettings && (
-            <IconButton
-              onClick={handleSettingsClick}
-              size="small"
-              sx={{ color: 'var(--text)' }}
-            >
-              <Settings />
-            </IconButton>
-          )}
-        </Box>
-      </Box>
+        )}
+      </WidgetHeader>
 
       {error && (
         <Box sx={{ mb: 2, p: 2, bgcolor: 'var(--hg-error-surface)', borderRadius: 'var(--hg-radius-sm)' }}>
@@ -1681,7 +1689,7 @@ const CalendarWidget = ({
                 );
               };
 
-              const hasAnyEvents = day.multiDaySlotCount > 0 || day.allDaySingleEvents.length > 0 || day.timedEvents.length > 0;
+              const hasAnyEvents = day.multiDaySlotCount > 0 || day.timedEvents.length > 0;
 
               return (
                 <Box
@@ -1697,15 +1705,33 @@ const CalendarWidget = ({
                     flexDirection: 'column'
                   }}
                 >
-                  <Box sx={{ textAlign: 'center', mb: 1, borderBottom: '1px solid var(--card-border)', pb: 1 }}>
-                    <Typography variant="caption" sx={{ fontWeight: 'bold', color: day.isToday ? 'var(--accent)' : 'inherit' }}>
+                  {/* One line: the weekday, then the date, in the accent's
+                      circle today. The month is in the widget's title, so a
+                      day names it only when a new month starts. */}
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.75, minHeight: 36, mb: 1, borderBottom: '1px solid var(--card-border)', pb: 0.75 }}>
+                    <Typography variant="caption" sx={{ fontWeight: 600, color: day.isToday ? 'var(--accent)' : 'var(--text)', opacity: day.isToday ? 1 : 0.7 }}>
                       {day.dayName}
                     </Typography>
-                    <Typography variant="h6" sx={{ fontWeight: 'bold', color: day.isToday ? 'var(--accent)' : 'inherit' }}>
-                      {day.dayNumber}
-                    </Typography>
-                    <Typography variant="caption" sx={{ color: 'var(--text)', opacity: 0.6 }}>
-                      {day.monthName}
+                    <Typography
+                      component="span"
+                      sx={{
+                        fontWeight: 700,
+                        fontSize: '1.125rem',
+                        lineHeight: 1,
+                        fontVariantNumeric: 'tabular-nums',
+                        ...(day.isToday && {
+                          color: 'white',
+                          backgroundColor: 'var(--accent)',
+                          borderRadius: '999px',
+                          minWidth: 30,
+                          height: 30,
+                          px: 0.75,
+                          display: 'inline-grid',
+                          placeItems: 'center',
+                        }),
+                      }}
+                    >
+                      {day.date.getDate() === 1 ? `${day.monthName} ${day.dayNumber}` : day.dayNumber}
                     </Typography>
                   </Box>
 
@@ -1714,52 +1740,7 @@ const CalendarWidget = ({
                       renderPill(event, `multi-${slotIdx}`)
                     )}
 
-                    {day.allDaySingleEvents.map((event, evIdx) => {
-                      const palette = getPillPalette(event);
-                      return (
-                        <Box
-                          key={`allday-${evIdx}`}
-                          onClick={() => handleSelectEvent(event)}
-                          sx={{
-                            mb: 0.5,
-                            cursor: 'pointer',
-                            height: `${displaySettings.textSize * 2.4}px`,
-                            minHeight: `${displaySettings.textSize * 2.4}px`,
-                            display: 'flex',
-                            alignItems: 'stretch',
-                          }}
-                        >
-                          <Box
-                            sx={{
-                              flex: 1,
-                              display: 'flex',
-                              alignItems: 'center',
-                              backgroundColor: palette.backgroundColor,
-                              borderRadius: 'var(--hg-radius-lg)',
-                              px: 1,
-                              py: 0.125,
-                              border: `1px solid ${palette.borderColor}`,
-                              overflow: 'hidden',
-                              '&:hover': { filter: 'brightness(1.1)' }
-                            }}
-                          >
-                            <Typography variant="caption" sx={{
-                              fontSize: `${displaySettings.textSize}px`,
-                              color: palette.textColor,
-                              fontWeight: 500,
-                              fontStyle: 'italic',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap'
-                            }}>
-                              {event.title}
-                            </Typography>
-                          </Box>
-                        </Box>
-                      );
-                    })}
-
-                    {(day.multiDaySlotCount > 0 || day.allDaySingleEvents.length > 0) && day.timedEvents.length > 0 && (
+                    {day.multiDaySlotCount > 0 && day.timedEvents.length > 0 && (
                       <Box sx={{ borderTop: '1px solid var(--card-border)', mt: 0.5, mb: 0.5 }} />
                     )}
 

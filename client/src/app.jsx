@@ -1,7 +1,6 @@
 // client/src/app.jsx
 import React, { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
-import { IconButton, Box, Dialog, DialogContent, Typography, ThemeProvider, createTheme } from '@mui/material';
-import { Close } from '@mui/icons-material';
+import { Box, Dialog, DialogContent, Typography, ThemeProvider, createTheme } from '@mui/material';
 
 import axios from 'axios';
 import PluginWidgetWrapper from './components/PluginWidgetWrapper.jsx';
@@ -14,6 +13,7 @@ import ProfileSwitcher from './components/ProfileSwitcher.jsx';
 import WakePicker from './components/WakePicker.jsx';
 import { API_BASE_URL } from './utils/apiConfig.js';
 import { migrateLegacyPluginStorage } from './utils/pluginLocalStore.js';
+import { pluginGridSize } from './utils/pluginGridSize.js';
 import { getDeviceApiBase, getDeviceName } from './utils/deviceName.js';
 import { refreshSubscription } from './utils/pushNotifications.js';
 import { unlockAudio } from './utils/choreSound.js';
@@ -217,6 +217,13 @@ const WidgetLoadingFallback = ({ label }) => (
   </Box>
 );
 
+// Buttons in sentence case, like the rest of HomeGlow's text. A theme that
+// sets headingTransform still gets its own: its button options win.
+const withSentenceCaseButtons = (options) => ({
+  ...options,
+  typography: { ...options.typography, button: { textTransform: 'none', ...options.typography?.button } },
+});
+
 const App = () => {
   const API_DEVICE_URL = getDeviceApiBase(API_BASE_URL);
   const isMobile = useIsMobile();
@@ -332,7 +339,7 @@ const App = () => {
   // Always a provider, so switching between Classic and a themed look never
   // changes the tree's shape (which would remount everything, Admin included).
   // Classic gets MUI's default theme, which is what MUI uses with no provider.
-  const muiTheme = useMemo(() => createTheme(muiThemeOptions(activeTheme, displayTheme) || {}), [activeTheme, displayTheme]);
+  const muiTheme = useMemo(() => createTheme(withSentenceCaseButtons(muiThemeOptions(activeTheme, displayTheme) || {})), [activeTheme, displayTheme]);
   const themeTokenNamesRef = useRef([]);
 
   const fetchInstalledPlugins = async () => {
@@ -816,8 +823,11 @@ const App = () => {
   // Within seconds, once the server says household settings changed (issue
   // #325, utils/householdChanges.js): appearance, vacation, control limits.
   // The slow poll above stays as a safety net.
+  // Layouts too: a Home Assistant panel resized in the builder is resized on
+  // every display (server/routes/haPanels.js).
   useEffect(() => subscribeHouseholdChanges(['settings'], () => {
     void fetchHouseholdSettings();
+    void fetchWidgetAssignments();
   }), [fetchHouseholdSettings]);
 
   // A wall display checks for changes every 15 seconds; a phone only when
@@ -1466,9 +1476,7 @@ const App = () => {
         // "expand": false in the manifest keeps it from being expanded.
         expandable: plugin.manifest?.expand !== false,
         defaultPosition: { x: 0, y: 0 },
-        defaultSize: { width: 6, height: 4 },
-        minWidth: 2,
-        minHeight: 2,
+        ...pluginGridSize(plugin),
         savedLayout: dbLayout,
         content: <PluginWidgetWrapper
           filename={plugin.filename}
@@ -1679,29 +1687,16 @@ const App = () => {
       <Dialog
         open={showAdminPanel}
         onClose={toggleAdminPanel}
-        maxWidth="lg"
+        maxWidth={false}
         fullScreen={isMobile}
         // An edge for the floating panel, which can sink into a page background
         // of a similar solid color (#230). Full screen on a phone needs none.
+        // The panel sets its own size (AdminShell), so it doesn't change from
+        // section to section. Its corners stay MUI's own, like the fields in it.
         slotProps={{ paper: { sx: isMobile ? {} : { border: '1px solid var(--card-border)' } } }}
       >
-        <DialogContent sx={{ position: 'relative', '@media (max-width:599.95px)': { p: 1.5 } }}>
-          <IconButton
-            onClick={toggleAdminPanel}
-            sx={{
-              position: 'absolute',
-              right: 8,
-              top: 8,
-              color: 'text.secondary',
-              zIndex: 1,
-              '&:hover': {
-                color: 'error.main',
-              },
-            }}
-          >
-            <Close />
-          </IconButton>
-          <Suspense fallback={<Typography sx={{ py: 2 }}>Loading settings...</Typography>}>
+        <DialogContent sx={{ p: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <Suspense fallback={<Typography sx={{ p: 3 }}>Loading settings...</Typography>}>
             <AdminPanel
               setWidgetSettings={setWidgetSettings}
               onRequestClose={toggleAdminPanel}
@@ -1732,6 +1727,7 @@ const App = () => {
         onRefresh={handlePageRefresh}
         // A widget filling the whole page covers the dock too.
         hidden={dockHidden || dashboardIdle || expandedWidgetSize === 'full'}
+        underDialogs={showAdminPanel}
         theme={displayTheme}
         themeMode={themeMode}
         screensaverCountdown={

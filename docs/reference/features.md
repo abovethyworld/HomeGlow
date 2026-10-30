@@ -112,6 +112,48 @@ The chore system uses a **three-table model** (see [Database](../architecture/da
 `utils/choreHelpers.js`; backend chore routes + `dailyBackgroundProcessing()` in
 `server/index.js`.
 
+### Schedules by person
+
+Admin → Family → Chores opens its schedules **by person** (the full list is one
+tap away, and each display remembers which it last used). Each person has a
+tab, and unassigned bonus chores have one of their own. A tab shows:
+
+- **A week calendar**, Sunday to Saturday with dates, listing the chores that
+  land on each day (hidden schedules left out). Past days read the person's
+  chore history: ✓ done (a stays-until-done chore done on a later day shows
+  there, marked late), ✗ missed or not done, ⏳ a stays-until-done chore still
+  waiting (also shown on today, "from Mon", until it's done); vacation days are striped and marked 🏖️, and days before a schedule
+  existed show nothing. An "again after done" chore sits on its next date (the
+  server rewrites its crontab to that date when it's done). Arrows step to other
+  weeks. Chores with no fixed day (one-time with no date) are listed under it.
+- **The person's chores grouped by schedule**: "Every day", "Weekdays",
+  "Mon · Wed · Fri", "Every other day", "Monthly · day 1",
+  "Every 3 months · Jan 15, Apr 15, Jul 15, Oct 15", "Every year · Mar 20",
+  "One-time · Nov 3", "Again 3 days after done". **Add** offers the person's
+  schedules first, then the common ones, **Monthly** (pick the
+  day of the month), **Custom** (every 1, 3, 6 or 9 months or a year, on set
+  dates from a start date or counted from when it's done; 9 months only counts
+  from when it's done), or any set of days; then a tick list of
+  chores, with **New chore** right there. A group can change its days (with a
+  count of the chores it changes), be copied to other people (chores they
+  already have stay put), or be removed. A chore is dragged (mouse or finger)
+  between groups. A row shows a "Stays until done" tag when that is set (in the
+  chore's settings, Day Of ↔ Until Completed). The Add menu lists every common
+  schedule, even ones the person already has (picking one adds to it); its day
+  row and Change days start on Sunday, and Change days has Every day, Weekdays
+  and Weekends quick buttons.
+
+A group is **not stored**: it is the person's schedules whose crontab day
+fields match (`utils/choreScheduleGroups.js`). Each chore keeps its own schedule
+row, so history, routines, follow-ups and per-chore settings (due time, sound,
+expiry, sticky, snooze) work as before, and are set with each chore's settings
+button. Moving a chore or changing a group's days rewrites only the day fields
+of each schedule; its time of day is kept. A chore sits in one group per person:
+adding it to another moves its schedule there. Sticky chores' daily copies
+(`parent_schedule_id`) are left out of the view.
+
+**Code:** `ChoreScheduleBoard.jsx`, `utils/choreScheduleGroups.js`.
+
 ### Chore due-time sounds
 
 A schedule can carry a **due time** (`HH:MM`) and play a **notification sound** on
@@ -243,8 +285,13 @@ and set up in **Admin → Family → Routines**, beside Chores.
 - **For several people at once:** a new routine can be for several people; each gets
   their own copy, with their own ticks and streak. Routines can be selected and deleted
   together, as chores can.
-- **Steps** are built once in the Steps tab, with a name and an icon, and used in any
-  routine, in the order chosen there. A step in use can't be deleted.
+- **Steps** are built once, with a name and an icon, and used in any routine, in the
+  order chosen there. A step in use can't be deleted. They're made in the Steps tab, or
+  right from the routine editor: its *Add a step* box lists **＋ New step** first, which
+  opens the step dialog on top of the routine. It also lists steps not yet in the
+  routine, then chores, which become steps when picked. Typing a name that matches
+  nothing offers *Create step "…"* with that name filled in. A step made there joins
+  the routine at once.
 - **Ticked in the Chores widget.** A routine's card shows its steps, an *n/m* chip and a
   progress bar. Ticking the last step completes the chore. Unticking one undoes it and keeps
   the others. The card's own button still completes the whole routine at once (every step
@@ -619,15 +666,26 @@ gates in `app.jsx` (sound scheduler + screensaver render), UI in `AdminPanel.jsx
 - **Admin → Dashboard → Home Assistant** builds panels of tiles for Home
   Assistant devices, with no code: pick devices (searchable, grouped by area),
   or start a panel from an area in one click; set each tile's label, icon, size
-  (1×1 to 2×2), "view only", "press and hold", whether it shows its state, and
-  "show only when…" another entity is in a given state. Several entities of
-  one kind on one tile work together. A live preview shows the panel in the
-  current theme at three widget sizes.
+  (1×1 to 2×2, or a long tile across the panel's whole width), "view only",
+  "press and hold", whether it shows its state, and "show only when…" another
+  entity is in a given state. Several entities of one kind on one tile work
+  together.
+- **Size on the dashboard.** The builder picks the panel's size in grid squares
+  (1–12 × 1–12, down to a single button), with a "fits best" suggestion, and a
+  live preview draws it at that size in the current theme. A new panel starts
+  at that size; changing it on a panel already placed resizes it on every
+  display it is on (unless turned off), and each display redraws within seconds
+  (household sync, #325). Tiles fill the card at any size.
+- **Look.** Classic, or Bold: big centered icons, solid "on" tiles, fills for
+  dimmers and shades, and icons that move while on (a switch turns the motion
+  off; reduced-motion settings always do).
 - Each panel is a plugin (`ha-<name>.html`), placed on tabs like any other, and
   stored in the database (`ha_panels`), so it survives upgrades. One template
   (`server/ha-panels/template.html`) draws every panel from its recipe, so a
   HomeGlow update improves them all.
-- Tiles by kind: lights (tap; drag to dim), switches, fans (speed), shades
+- Tiles by kind: lights (tap; drag to dim), switches, fans (a fan with up to
+  six speeds steps through each one per tap and then off; one with more, or
+  with smooth speed control, gets a slider), shades
   (top half opens, bottom closes, drag for position), scenes and scripts, a
   thermostat (− / + and mode), media players, locks, alarms, vacuums, selects,
   numbers, camera snapshots, and read-only sensors, people and the sun. The
@@ -706,6 +764,11 @@ the foot of the Google account card:
   above.
 - Access can be gated by an optional **PIN** (on-screen pad or keyboard entry),
   hashed in the `admin_pin` table.
+- **Changing or removing the PIN** asks for the current one first, even on a
+  display that remembers it. The server checks it too. A forgotten PIN can only
+  be reset on the server itself, with `reset-admin-pin.js`; see
+  [Deployment](../guides/deployment.md#resetting-a-forgotten-admin-pin). The PIN
+  prompt and Admin → Security both point there.
 - **User display order** (issue #134): Admin → Family → Users controls what order family
   members appear in — drag a row on desktop, or use the up/down arrows, which
   are the primary control on touch screens since HTML5 drag events never fire

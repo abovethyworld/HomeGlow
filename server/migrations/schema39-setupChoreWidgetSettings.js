@@ -21,9 +21,12 @@ try {
         // resets the block to the widget's defaults when the setup
         // carries the chores widget, so one profile's chore view
         // never leaks into the next profile's.
-        db.exec(`
-            ALTER TABLE device_setups ADD COLUMN chore_widget_settings_json TEXT
-        `);
+        const setupColumns = db.prepare('PRAGMA table_info(device_setups)').all().map((c) => c.name);
+        if (!setupColumns.includes('chore_widget_settings_json')) {
+            db.exec(`
+                ALTER TABLE device_setups ADD COLUMN chore_widget_settings_json TEXT
+            `);
+        }
 
         db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(
             schemaIdKey,
