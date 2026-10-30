@@ -146,6 +146,39 @@ It is the record we will share with the HomeGlow project when the time comes.
   without hand-editing schedules. Known gap in this version: the dashboard
   chore widget does not pattern-gate yet; only the board does.
 
+## Wallpaper importer + picker (2026-10-30, step 5)
+
+Drop a Wallpaper Engine zip and it attaches itself. The picker (a
+"Wallpapers" chip beside the profile chips on the dashboard) lists
+every package as a card with its preview thumbnail, shows it on this
+screen, assigns it to a member or the household default, and takes
+new zips by drop or file pick.
+
+- server/services/wallpaperImport.js: dependency-free import. Zips
+  are read from disk entry by entry (the backend container has a
+  256MB memory cap; a workshop zip can be 200MB, and the first
+  buffered attempt OOM-killed the backend). Videos pass through or
+  shrink to 1080p; scenes give up their full-resolution main-layer
+  art out of scene.pkg (image streams carved from the .tex files).
+  Palettes derive from the preview GIF with a small GIF decoder,
+  light and dark sets, accent from the project scheme color.
+- Hard rules, enforced server-side: the 160px preview is never a
+  background (picker thumbnails only), and a display asset under
+  1280px wide rejects the import with a plain reason instead of
+  attaching something pixelated.
+- server/routes/wallpapers.js: POST /api/wallpapers/import (streams
+  the upload to a temp file), POST /api/wallpapers/assign (member
+  assignments write the plugin's storage; "default" writes the
+  household appearance), DELETE /api/wallpapers/:id. Re-importing a
+  wallpaper keeps its assignment.
+- Video work needs ffmpeg where node can run it: a static build at
+  server/utils/bin/ffmpeg on the deployed VM (not committed), or
+  WALLPAPER_FFMPEG pointing at one. Without it, scene imports still
+  work and video imports say what is missing.
+- Upload size note: the frontend nginx caps request bodies below
+  the biggest workshop zips (~200MB); raising client_max_body_size
+  for the /api/wallpapers/import location is still open.
+
 ## Planned (not built yet)
 
 Nothing at the moment.

@@ -3,6 +3,7 @@ import axios from 'axios';
 import { Box, Button } from '@mui/material';
 import { API_BASE_URL } from '../utils/apiConfig.js';
 import { saveAppearanceFields } from '../utils/appearanceSave.js';
+import WallpaperPicker from './WallpaperPicker.jsx';
 
 // "Who is looking" for this display: a chip per family member whose
 // wallpaper the Wallpaper Engine plugin tracks. Tapping one writes
@@ -28,25 +29,29 @@ export default function ProfileSwitcher({ appearance }) {
   const [users, setUsers] = useState([]);
   const [packages, setPackages] = useState([]);
   const [busy, setBusy] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  const fetchData = React.useCallback(async () => {
+    const [usersRes, storeRes] = await Promise.allSettled([
+      axios.get(`${API_BASE_URL}/api/users`),
+      axios.get(`${API_BASE_URL}/api/plugin/v1/storage/${PLUGIN_ID}`),
+    ]);
+    if (usersRes.status === 'fulfilled' && Array.isArray(usersRes.value.data)) {
+      setUsers(usersRes.value.data.filter((u) => u.id !== 0));
+    }
+    if (storeRes.status === 'fulfilled') {
+      const store = storeRes.value.data || {};
+      setPackages(Array.isArray(store.packages) ? store.packages : []);
+    }
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const [usersRes, storeRes] = await Promise.allSettled([
-        axios.get(`${API_BASE_URL}/api/users`),
-        axios.get(`${API_BASE_URL}/api/plugin/v1/storage/${PLUGIN_ID}`),
-      ]);
-      if (cancelled) return;
-      if (usersRes.status === 'fulfilled' && Array.isArray(usersRes.value.data)) {
-        setUsers(usersRes.value.data.filter((u) => u.id !== 0));
-      }
-      if (storeRes.status === 'fulfilled') {
-        const store = storeRes.value.data || {};
-        setPackages(Array.isArray(store.packages) ? store.packages : []);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
+    fetchData();
+    // The picker changes the package set (imports, assignments);
+    // refetch so the chips never go stale.
+    window.addEventListener('homeglow:wallpapers-changed', fetchData);
+    return () => window.removeEventListener('homeglow:wallpapers-changed', fetchData);
+  }, [fetchData]);
 
   const members = useMemo(
     () => users
@@ -62,18 +67,16 @@ export default function ProfileSwitcher({ appearance }) {
     return hit ? hit.user.id : null;
   }, [appearance, members]);
 
-  if (members.length === 0) return null;
-
-  const apply = async (entry) => {
+  const applyPackage = async (pkg) => {
     if (busy) return;
     setBusy(true);
     try {
-      if (!entry) {
+      if (!pkg) {
         await saveAppearanceFields('device', {}, { useHousehold: ['background', 'colors', 'colorsDark'] });
       } else {
-        const partial = { background: backgroundFor(entry.pkg) };
-        if (entry.pkg.palette?.light) partial.colors = entry.pkg.palette.light;
-        if (entry.pkg.palette?.dark) partial.colorsDark = entry.pkg.palette.dark;
+        const partial = { background: backgroundFor(pkg) };
+        if (pkg.palette?.light) partial.colors = pkg.palette.light;
+        if (pkg.palette?.dark) partial.colorsDark = pkg.palette.dark;
         await saveAppearanceFields('device', partial);
       }
       window.dispatchEvent(new Event(DEVICE_SETTINGS_UPDATED_EVENT));
@@ -83,6 +86,8 @@ export default function ProfileSwitcher({ appearance }) {
       setBusy(false);
     }
   };
+
+  const apply = (entry) => applyPackage(entry ? entry.pkg : null);
 
   const chipSx = (isActive, accent) => ({
     minHeight: 44,
@@ -111,6 +116,9 @@ export default function ProfileSwitcher({ appearance }) {
         justifyContent: 'flex-end',
       }}
     >
+      <Button disabled={busy} onClick={() => setPickerOpen(true)} sx={chipSx(false, null)}>
+        Wallpapers
+      </Button>
       <Button disabled={busy} onClick={() => apply(null)} sx={chipSx(activeId === null, null)}>
         Default
       </Button>
@@ -124,6 +132,11 @@ export default function ProfileSwitcher({ appearance }) {
           {entry.user.username}
         </Button>
       ))}
+      <WallpaperPicker
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onShowPackage={(pkg) => applyPackage(pkg)}
+      />
     </Box>
   );
 }
