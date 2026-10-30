@@ -128,6 +128,7 @@ const VacationScreensaver = lazy(loadVacationScreensaver);
 
 // region #98 - expected to get removed in the future (localStorage migration bridge)
 const DEVICE_SETTINGS_UPDATED_EVENT = 'homeglow:device-settings-updated';
+const DEVICE_CONFIG_UPDATED_EVENT = 'homeglow:device-config-updated';
 const INTERFACE_SETTINGS_UPDATED_EVENT = 'homeglow:interface-settings-updated';
 const DEVICE_SETTINGS_MIGRATION_KEY_PATTERN = /^(enabledWidgets|widgetSettings|pluginSettings|weatherZipCode|weatherTempUnit)$/;
 
@@ -766,11 +767,20 @@ const App = () => {
       void fetchHouseholdSettings();
     };
 
+    // A profile tap with a linked setup rewrites this device's tabs and
+    // widget assignments server-side; refetch both so the board follows.
+    const handleDeviceConfigUpdated = () => {
+      void fetchTabs();
+      void fetchWidgetAssignments();
+    };
+
     window.addEventListener(DEVICE_SETTINGS_UPDATED_EVENT, handleDeviceSettingsUpdated);
     window.addEventListener(INTERFACE_SETTINGS_UPDATED_EVENT, handleInterfaceSettingsUpdated);
+    window.addEventListener(DEVICE_CONFIG_UPDATED_EVENT, handleDeviceConfigUpdated);
     return () => {
       window.removeEventListener(DEVICE_SETTINGS_UPDATED_EVENT, handleDeviceSettingsUpdated);
       window.removeEventListener(INTERFACE_SETTINGS_UPDATED_EVENT, handleInterfaceSettingsUpdated);
+      window.removeEventListener(DEVICE_CONFIG_UPDATED_EVENT, handleDeviceConfigUpdated);
     };
   }, [fetchDeviceSettings, fetchHouseholdSettings, fetchAdminPinExists]);
 

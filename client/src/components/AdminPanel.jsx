@@ -72,6 +72,8 @@ import {
   ArrowUpward,
   ArrowDownward,
   Close,
+  Star,
+  StarBorder,
   Search as SearchIcon,
   ExpandMore
 } from '@mui/icons-material';
@@ -338,6 +340,11 @@ const AdminPanel = ({ setWidgetSettings, onPluginsChanged, onTabsChanged, onRequ
   const [devices, setDevices] = useState([]);
   const [copyDeviceDialog, setCopyDeviceDialog] = useState({ open: false, device: null });
   const [deleteDeviceDialog, setDeleteDeviceDialog] = useState({ open: false, device: null });
+  const [setups, setSetups] = useState([]);
+  const [setupName, setSetupName] = useState('');
+  const [setupProfileId, setSetupProfileId] = useState('');
+  const [applySetupDialog, setApplySetupDialog] = useState({ open: false, setup: null });
+  const [deleteSetupDialog, setDeleteSetupDialog] = useState({ open: false, setup: null });
   const [renameDeviceDialog, setRenameDeviceDialog] = useState({
     open: false,
     currentName: '',
@@ -385,6 +392,7 @@ const AdminPanel = ({ setWidgetSettings, onPluginsChanged, onTabsChanged, onRequ
       fetchWidgetAssignments();
       fetchPhotoData();
       fetchDevices();
+      fetchSetups();
     }
   }, [isAuthenticated]);
 
@@ -407,6 +415,16 @@ const AdminPanel = ({ setWidgetSettings, onPluginsChanged, onTabsChanged, onRequ
     } catch (error) {
       console.error('Error fetching devices:', error);
       setDevices([]);
+    }
+  };
+
+  const fetchSetups = async () => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/device-setups`);
+      setSetups(Array.isArray(response.data) ? response.data : []);
+    } catch (error) {
+      console.error('Error fetching device setups:', error);
+      setSetups([]);
     }
   };
 
@@ -1300,6 +1318,115 @@ const AdminPanel = ({ setWidgetSettings, onPluginsChanged, onTabsChanged, onRequ
       console.error('Error copying device settings:', error);
       setSaveMessage({ show: true, type: 'error', text: t('admin:messages.deviceCopyFailed') });
       setTimeout(() => setSaveMessage({ show: false, type: '', text: '' }), 3000);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const showSetupMessage = (type, textKey) => {
+    setSaveMessage({ show: true, type, text: t(textKey) });
+    setTimeout(() => setSaveMessage({ show: false, type: '', text: '' }), 3000);
+  };
+
+  const handleSaveSetup = async () => {
+    const name = setupName.trim();
+    if (!name) {
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      await axios.post(`${API_BASE_URL}/api/device-setups`, {
+        name,
+        deviceName: currentDeviceName,
+        profileUserId: setupProfileId === '' ? null : Number(setupProfileId),
+      });
+      setSetupName('');
+      await fetchSetups();
+      showSetupMessage('success', 'admin:messages.setupSaved');
+    } catch (error) {
+      console.error('Error saving device setup:', error);
+      showSetupMessage('error', 'admin:messages.setupSaveFailed');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const openApplySetupDialog = (setup) => {
+    setApplySetupDialog({ open: true, setup });
+  };
+
+  const confirmApplySetup = async () => {
+    if (!applySetupDialog.setup?.id) {
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      await axios.post(`${API_DEVICE_URL}/apply-setup/${applySetupDialog.setup.id}`);
+
+      setApplySetupDialog({ open: false, setup: null });
+      await fetchTabs();
+      await fetchWidgetAssignments();
+      await fetchDeviceSettings();
+      await fetchDevices();
+      if (onTabsChanged) {
+        await onTabsChanged();
+      }
+
+      showSetupMessage('success', 'admin:messages.setupApplied');
+    } catch (error) {
+      console.error('Error applying device setup:', error);
+      showSetupMessage('error', 'admin:messages.setupApplyFailed');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleToggleDefaultSetup = async (setup) => {
+    try {
+      await axios.patch(`${API_BASE_URL}/api/device-setups/${setup.id}`, {
+        isDefault: !setup.isDefault,
+      });
+      await fetchSetups();
+      showSetupMessage('success', 'admin:messages.setupUpdated');
+    } catch (error) {
+      console.error('Error updating device setup:', error);
+      showSetupMessage('error', 'admin:messages.setupUpdateFailed');
+    }
+  };
+
+  const handleSetupProfileChange = async (setup, value) => {
+    try {
+      await axios.patch(`${API_BASE_URL}/api/device-setups/${setup.id}`, {
+        profileUserId: value === '' ? null : Number(value),
+      });
+      await fetchSetups();
+      showSetupMessage('success', 'admin:messages.setupUpdated');
+    } catch (error) {
+      console.error('Error updating device setup profile:', error);
+      showSetupMessage('error', 'admin:messages.setupUpdateFailed');
+    }
+  };
+
+  const openDeleteSetupDialog = (setup) => {
+    setDeleteSetupDialog({ open: true, setup });
+  };
+
+  const confirmDeleteSetup = async () => {
+    if (!deleteSetupDialog.setup?.id) {
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      await axios.delete(`${API_BASE_URL}/api/device-setups/${deleteSetupDialog.setup.id}`);
+      setDeleteSetupDialog({ open: false, setup: null });
+      await fetchSetups();
+      showSetupMessage('success', 'admin:messages.setupDeleted');
+    } catch (error) {
+      console.error('Error deleting device setup:', error);
+      showSetupMessage('error', 'admin:messages.setupDeleteFailed');
     } finally {
       setIsLoading(false);
     }
@@ -2849,6 +2976,7 @@ const AdminPanel = ({ setWidgetSettings, onPluginsChanged, onTabsChanged, onRequ
                     </TableBody>
                   </Table>
                 </TableContainer>
+
               </>
             )}
           </CardContent>
@@ -2953,6 +3081,127 @@ const AdminPanel = ({ setWidgetSettings, onPluginsChanged, onTabsChanged, onRequ
                     </TableBody>
                   </Table>
                 </TableContainer>
+
+                <Box sx={{ mt: 4 }}>
+                  <Typography variant="h6" sx={{ mb: 1 }}>
+                    {t('admin:devices.setupsHeading')}
+                  </Typography>
+                  <Alert severity="info" sx={{ mb: 2 }}>
+                    {t('admin:devices.setupsHelp')}
+                  </Alert>
+
+                  <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'flex-start', mb: 2 }}>
+                    <TextField
+                      size="small"
+                      label={t('admin:devices.setupNameLabel')}
+                      value={setupName}
+                      onChange={(e) => setSetupName(e.target.value)}
+                      sx={{ minWidth: 220, flex: '1 1 220px' }}
+                    />
+                    <FormControl size="small" sx={{ minWidth: 180 }}>
+                      <InputLabel>{t('admin:devices.setupProfileLabel')}</InputLabel>
+                      <Select
+                        label={t('admin:devices.setupProfileLabel')}
+                        value={setupProfileId}
+                        onChange={(e) => setSetupProfileId(e.target.value)}
+                      >
+                        <MenuItem value="">{t('admin:devices.setupNoProfile')}</MenuItem>
+                        {users.filter((user) => user.id !== 0).map((user) => (
+                          <MenuItem key={user.id} value={user.id}>{user.username}</MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                    <Button
+                      variant="contained"
+                      startIcon={<Save />}
+                      onClick={handleSaveSetup}
+                      disabled={!setupName.trim()}
+                    >
+                      {t('admin:devices.setupSaveCurrent')}
+                    </Button>
+                  </Box>
+
+                  {setups.length === 0 ? (
+                    <Typography variant="body2" color="text.secondary">
+                      {t('admin:devices.setupsEmpty')}
+                    </Typography>
+                  ) : (
+                    <TableContainer component={Paper}>
+                      <Table sx={stackableTableSx}>
+                        <TableHead>
+                          <TableRow>
+                            <TableCell>{t('common:labels.name')}</TableCell>
+                            <TableCell>{t('admin:subTabs.widgets')}</TableCell>
+                            <TableCell>{t('admin:devices.setupProfileLabel')}</TableCell>
+                            <TableCell>{t('admin:devices.lastUpdated')}</TableCell>
+                            <TableCell width={190}>{t('common:labels.actions')}</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {setups.map((setup) => (
+                            <TableRow key={setup.id}>
+                              <TableCell data-label={t('common:labels.name')}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                                  <Typography variant="body2">{setup.name}</Typography>
+                                  {setup.isDefault && (
+                                    <Chip label={t('admin:devices.setupDefault')} color="primary" size="small" />
+                                  )}
+                                </Box>
+                              </TableCell>
+                              <TableCell data-label={t('admin:subTabs.widgets')}>
+                                <Chip label={Number(setup.widgetCount) || 0} size="small" />
+                              </TableCell>
+                              <TableCell data-label={t('admin:devices.setupProfileLabel')}>
+                                <FormControl size="small" sx={{ minWidth: 140 }}>
+                                  <Select
+                                    value={setup.profileUserId ?? ''}
+                                    onChange={(e) => handleSetupProfileChange(setup, e.target.value)}
+                                    displayEmpty
+                                  >
+                                    <MenuItem value="">{t('admin:devices.setupNoProfile')}</MenuItem>
+                                    {users.filter((user) => user.id !== 0).map((user) => (
+                                      <MenuItem key={user.id} value={user.id}>{user.username}</MenuItem>
+                                    ))}
+                                  </Select>
+                                </FormControl>
+                              </TableCell>
+                              <TableCell data-label={t('admin:devices.lastUpdated')}>
+                                {setup.updatedAt ? new Date(setup.updatedAt).toLocaleString() : 'Unknown'}
+                              </TableCell>
+                              <TableCell>
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  onClick={() => openApplySetupDialog(setup)}
+                                >
+                                  {t('admin:devices.setupApply')}
+                                </Button>
+                                <IconButton
+                                  onClick={() => handleToggleDefaultSetup(setup)}
+                                  color="primary"
+                                  size="small"
+                                  title={setup.isDefault
+                                    ? t('admin:devices.setupRemoveDefault')
+                                    : t('admin:devices.setupMakeDefault')}
+                                >
+                                  {setup.isDefault ? <Star /> : <StarBorder />}
+                                </IconButton>
+                                <IconButton
+                                  onClick={() => openDeleteSetupDialog(setup)}
+                                  color="error"
+                                  size="small"
+                                  title={t('admin:devices.setupDelete')}
+                                >
+                                  <Delete />
+                                </IconButton>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  )}
+                </Box>
               </>
             )}
 
@@ -4549,6 +4798,53 @@ const AdminPanel = ({ setWidgetSettings, onPluginsChanged, onTabsChanged, onRequ
           </Button>
         </DialogActions>
       </Dialog>
+
+      <Dialog
+        open={applySetupDialog.open}
+        onClose={() => setApplySetupDialog({ open: false, setup: null })}
+        maxWidth="sm"
+        fullWidth
+        fullScreen={isMobile}
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Warning color="warning" />
+            <Typography variant="h6">{t('admin:devices.applySetupTitle')}</Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            {t('admin:devices.applySetupExplain')}
+          </Alert>
+          <Typography sx={{ mb: 2 }}>
+            {t('admin:devices.applySetupWarning')}
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {t('admin:devices.setupSource')} <strong>{applySetupDialog.setup?.name}</strong>
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {t('admin:devices.destinationDevice')} <strong>{currentDeviceName}</strong>
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setApplySetupDialog({ open: false, setup: null })} variant="outlined">
+            {t('common:actions.cancel')}
+          </Button>
+          <Button onClick={confirmApplySetup} variant="contained" color="warning" startIcon={<ContentCopy />}>
+            {t('admin:devices.confirmApplySetup')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <DeleteConfirmationDialog
+        open={deleteSetupDialog.open}
+        onClose={() => setDeleteSetupDialog({ open: false, setup: null })}
+        onConfirm={confirmDeleteSetup}
+        title={t('admin:devices.setupDelete')}
+        itemName={deleteSetupDialog.setup?.name}
+        itemLabel="Setup"
+        warningMessage="This action cannot be undone."
+      />
 
       <Dialog
         open={renameDeviceDialog.open}
