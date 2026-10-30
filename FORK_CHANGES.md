@@ -6,6 +6,22 @@ It is the record we will share with the HomeGlow project when the time comes.
 
 ## Shipped
 
+### Dashboard profile switcher: see everyone's background — 2026-10-30
+
+- What: the dashboard gains chips (top right) for Default and each
+  family member with a wallpaper. Tapping a member writes this
+  display's appearance overrides: their wallpaper as the background
+  and their palette as the interface colors, light and dark.
+  Default drops the overrides and the household look returns. A
+  new personalization background kind, "scene", paints a scene
+  wallpaper's animated preview behind the widgets.
+- Why: Gavin wanted to see everyone's backgrounds from the screen
+  he actually looks at, not only on the /board page. Per-display
+  overrides keep it local to the screen in front of you; the
+  household default never changes.
+- Upstream idea: a "who is looking" switcher driven by data a
+  plugin maintains.
+
 ### Mode-split interface colors (colorsDark) — 2026-10-30
 
 - What: the appearance gains an optional `colorsDark` field, a second

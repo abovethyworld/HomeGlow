@@ -10,6 +10,7 @@ import MobileDashboard from './components/MobileDashboard.jsx';
 import TabBar from './components/TabBar.jsx';
 import ScreensaverCountdown from './components/ScreensaverCountdown.jsx';
 import UpdateIndicator from './components/UpdateIndicator.jsx';
+import ProfileSwitcher from './components/ProfileSwitcher.jsx';
 import { API_BASE_URL } from './utils/apiConfig.js';
 import { migrateLegacyPluginStorage } from './utils/pluginLocalStore.js';
 import { getDeviceApiBase, getDeviceName } from './utils/deviceName.js';
@@ -1511,6 +1512,9 @@ const App = () => {
         {/* Its corner is the Save Layout button's while the layout is
             unlocked, which is never for long. */}
         {widgetsLocked && <UpdateIndicator />}
+        {/* Per-member look for this display: chips that swap the
+            background and palette to one member's wallpaper. */}
+        {!showAdminPanel && !screensaverActive && <ProfileSwitcher appearance={appearance} />}
         {/* Move/Resize ends here, not back in the dock (issue #333). */}
         {!isMobile && !widgetsLocked && !showAdminPanel && !screensaverActive && (
           <SaveLayoutButton onSave={toggleWidgetsLock} />

@@ -31,6 +31,9 @@ const BACKGROUND_FILE = /^[0-9a-f]{24}\.(jpg|png|webp)$/;
 const BACKGROUND_VIDEO_SRC = /^\/Uploads\/wallpapers\/[0-9]+\/[A-Za-z0-9._-]+$/;
 const BACKGROUND_VIDEO_FILE = /\.(mp4|webm)$/i;
 const BACKGROUND_POSTER_FILE = /\.(gif|jpg|png|webp)$/i;
+// A scene wallpaper's still (its animated preview), for members whose
+// wallpaper is not a video. Package folders may be workshop ids or slugs.
+const BACKGROUND_SCENE_SRC = /^\/Uploads\/wallpapers\/[A-Za-z0-9_-]+\/[A-Za-z0-9._-]+$/;
 
 export function normalizeBackground(value) {
   if (!value || typeof value !== 'object') return undefined;
@@ -55,6 +58,14 @@ export function normalizeBackground(value) {
       video.poster = value.poster;
     }
     return video;
+  }
+  if (
+    value.kind === 'scene' &&
+    typeof value.src === 'string' &&
+    BACKGROUND_SCENE_SRC.test(value.src) &&
+    BACKGROUND_POSTER_FILE.test(value.src)
+  ) {
+    return { kind: 'scene', src: value.src };
   }
   return undefined;
 }
@@ -102,6 +113,11 @@ export function personalizationTokens({ background, cardOpacity }, frameBg) {
     tokens['--hg-page-image'] = 'none';
     tokens['--hg-bg-video'] = `url("${background.src}")`;
     if (background.poster) tokens['--hg-bg-video-poster'] = `url("${background.poster}")`;
+  } else if (background?.kind === 'scene') {
+    // A scene wallpaper's animated preview, painted by the
+    // SceneBackground layer behind the widgets.
+    tokens['--hg-page-image'] = 'none';
+    tokens['--hg-bg-scene'] = `url("${background.src}")`;
   }
   if (typeof cardOpacity === 'number' && cardOpacity < 1) {
     const rgba = parseColor(frameBg);

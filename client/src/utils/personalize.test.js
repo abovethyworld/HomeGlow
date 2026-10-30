@@ -67,3 +67,24 @@ describe('helpers', () => {
     expect(normalizeCardOpacity('x')).toBeUndefined();
   });
 });
+
+describe('scene backgrounds', () => {
+  it('accepts a wallpaper preview as a scene background', () => {
+    expect(normalizeBackground({ kind: 'scene', src: '/Uploads/wallpapers/2984957363/preview.gif' }))
+      .toEqual({ kind: 'scene', src: '/Uploads/wallpapers/2984957363/preview.gif' });
+    expect(normalizeBackground({ kind: 'scene', src: '/Uploads/wallpapers/sleep-token-fallen-leaves/preview.gif' }))
+      .toEqual({ kind: 'scene', src: '/Uploads/wallpapers/sleep-token-fallen-leaves/preview.gif' });
+  });
+
+  it('rejects scene files outside the wallpaper packages', () => {
+    expect(normalizeBackground({ kind: 'scene', src: '/Uploads/photos/cat.gif' })).toBeUndefined();
+    expect(normalizeBackground({ kind: 'scene', src: '/Uploads/wallpapers/2902931482/aquarium.mp4' })).toBeUndefined();
+    expect(normalizeBackground({ kind: 'scene', src: 'https://example.com/x.gif' })).toBeUndefined();
+  });
+
+  it('hands the scene file to the SceneBackground layer', () => {
+    const tokens = personalizationTokens({ background: { kind: 'scene', src: '/Uploads/wallpapers/2984957363/preview.gif' }, cardOpacity: 1 }, '#ffffff');
+    expect(tokens['--hg-bg-scene']).toBe('url("/Uploads/wallpapers/2984957363/preview.gif")');
+    expect(tokens['--hg-page-image']).toBe('none');
+  });
+});
