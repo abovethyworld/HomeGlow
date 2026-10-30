@@ -123,6 +123,7 @@ function hexToRgba(hex, alpha) {
 function layerFromAppearance(background) {
   if (!background) return null;
   if (background.kind === 'video') return { type: 'video', src: background.src, poster: background.poster || null, accent: null, palette: null };
+  if (background.kind === 'scene') return { type: 'image', src: background.src, accent: null, palette: null };
   if (background.kind === 'image') return { type: 'image', src: backgroundImageUrl(background.file), accent: null, palette: null };
   return null;
 }

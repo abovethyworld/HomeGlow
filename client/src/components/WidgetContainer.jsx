@@ -23,6 +23,7 @@ import { frameDecoration } from '../utils/widgetFrame';
 import FrameOrnaments from './FrameOrnaments';
 import ThemeAmbience from '../themes/engine/ThemeAmbience.jsx';
 import VideoBackground from './VideoBackground.jsx';
+import SceneBackground from './SceneBackground.jsx';
 import {
   BUTTON_REVEAL_MS,
   DOUBLE_TAP_MS,
@@ -885,6 +886,9 @@ const WidgetContainer = ({
       {/* A personalization video background (kind "video") paints in the
           same layer as the ambience, under every widget. */}
       <VideoBackground />
+      {/* A scene wallpaper's animated preview (kind "scene") paints in
+          the same layer. */}
+      <SceneBackground />
       {/* The dimmed page behind an expanded widget. A tap on it puts the
           widget back. */}
       {expanded && expanded.phase !== 'settle' && (
