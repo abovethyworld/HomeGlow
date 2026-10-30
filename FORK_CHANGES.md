@@ -126,6 +126,11 @@ It is the record we will share with the HomeGlow project when the time comes.
   of leaving the previous viewer's settings behind. This is what
   lets a kid's setup be a chart of only their own chores while a
   parent's setup on the same screen still shows everyone's.
+  Companion fix in the chore widget: it now reloads that settings
+  block when the dashboard announces new device settings or
+  configuration (the two events a profile tap fires). It stays
+  mounted across a setup apply, and before this it kept showing
+  the previous profile's chore view until a page refresh.
 
 ### Dashboard profile switcher: see everyone's background — 2026-10-30
 
