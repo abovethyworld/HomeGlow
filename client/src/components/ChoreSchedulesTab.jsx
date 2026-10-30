@@ -11,14 +11,6 @@ import {
   Switch,
   FormControlLabel,
   Chip,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  TableSortLabel,
-  Paper,
   IconButton,
   Dialog,
   DialogTitle,
@@ -32,7 +24,9 @@ import {
   Radio,
   Grid,
   Checkbox,
-  ListItemText
+  ListItemText,
+  ToggleButton,
+  ToggleButtonGroup
 } from '@mui/material';
 import {
   Add,
@@ -53,11 +47,19 @@ import { getServerTimezoneSync } from '../utils/timezone.js';
 import SoundPicker from './SoundPicker.jsx';
 import ChoreIconPicker from './ChoreIconPicker.jsx';
 import { useTranslation } from 'react-i18next';
+import { AdminGroup, AdminNote, AdminRow, AdminSortControl } from './AdminRows.jsx';
 import { getWeekdayLabels } from '../utils/dateUtils.js';
 import useIsMobile from '../hooks/useIsMobile.js';
-import { compactStackedTableSx } from '../utils/responsiveTable.js';
 import { compareByKey } from '../utils/choreHelpers.js';
 import ExpiresSelect from './ExpiresSelect.jsx';
+import ChoreScheduleBoard from './ChoreScheduleBoard.jsx';
+
+// Which way the schedules section opens: by person (grouped by timing) or the
+// full list. Remembered per display; storage may be unavailable.
+const SCHEDULE_VIEW_KEY = 'homeglow_choreScheduleView';
+const readScheduleView = () => {
+  try { return localStorage.getItem(SCHEDULE_VIEW_KEY) === 'list' ? 'list' : 'person'; } catch { return 'person'; }
+};
 
 // Day labels come from the locale (index 0 = Sunday, matching crontab).
 const getDayOptions = () => getWeekdayLabels(0).map((label, value) => ({ label, value }));
@@ -256,24 +258,6 @@ const followupRuleFromRow = (row) => ({
   delay_minutes: row.timing === 'after' ? Math.round(Number(row.amount) * (row.unit === 'hours' ? 60 : 1)) : 0,
 });
 
-// A header cell that re-sorts its table. `sortDirection` on the cell is what
-// puts `aria-sort` on the <th>, so the state is announced without a second
-// visually-hidden copy of it.
-function SortableHeader({ column, sort, onSort, children }) {
-  const active = sort.column === column;
-  return (
-    <TableCell sortDirection={active ? sort.direction : false}>
-      <TableSortLabel
-        active={active}
-        direction={active ? sort.direction : 'asc'}
-        onClick={() => onSort(column)}
-      >
-        {children}
-      </TableSortLabel>
-    </TableCell>
-  );
-}
-
 // Clicking the active column flips it; clicking a new one starts ascending,
 // which is the reading order for names and "soonest first" for dates.
 function nextSort(sort, column) {
@@ -309,6 +293,12 @@ export default function ChoreSchedulesTab({ setSaveMessage }) {
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [savingChore, setSavingChore] = useState(false);
 
+  const [scheduleView, setScheduleViewState] = useState(readScheduleView);
+  const setScheduleView = (view) => {
+    setScheduleViewState(view);
+    try { localStorage.setItem(SCHEDULE_VIEW_KEY, view); } catch { /* per-display convenience only */ }
+  };
+
   const [filterUser, setFilterUser] = useState('');
   const [filterChore, setFilterChore] = useState('');
 
@@ -322,8 +312,11 @@ export default function ChoreSchedulesTab({ setSaveMessage }) {
     setTimeout(() => setSaveMessage({ show: false, type: '', text: '' }), 3500);
   };
 
+  // The spinner is for the first load only: a reload after a change keeps the
+  // section on screen, so the person tab, week and scroll stay where they were.
+  const loadedOnce = useRef(false);
   const fetchAll = useCallback(async () => {
-    setLoading(true);
+    if (!loadedOnce.current) setLoading(true);
     try {
       const [schedulesRes, choresRes, usersRes] = await Promise.all([
         axios.get(`${API_BASE_URL}/api/chore-schedules`),
@@ -339,6 +332,7 @@ export default function ChoreSchedulesTab({ setSaveMessage }) {
     } catch (err) {
       console.error('Error loading chore data:', err);
     } finally {
+      loadedOnce.current = true;
       setLoading(false);
     }
   }, []);
@@ -381,6 +375,8 @@ export default function ChoreSchedulesTab({ setSaveMessage }) {
     }
     setFilterUser('');
     setFilterChore(chore.id);
+    // The filter belongs to the list view, so the shortcut opens it there.
+    setScheduleView('list');
     schedulesSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
@@ -763,307 +759,269 @@ export default function ChoreSchedulesTab({ setSaveMessage }) {
     );
   }
 
+  const scheduleCount = (choreId) => getScheduleCountForChore(choreId);
+
   return (
     <Box>
       {/* Messages from here show in the Admin Panel's one message area
           under its tab bars (#230), so this tab no longer draws its own. */}
 
       {/* ── CHORE DEFINITIONS ────────────────────────────── */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
-        <Typography variant="h6">{t('chores:schedules.definitionsHeading')}</Typography>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button startIcon={<Refresh />} onClick={fetchAll} variant="outlined" size="small">
-            {t('common:actions.refresh')}
-          </Button>
-          <Button startIcon={<Add />} onClick={openCreateChore} variant="contained" size="small">
-            {t('chores:schedules.newChore')}
-          </Button>
-        </Box>
-      </Box>
-
-      <Alert severity="info" sx={{ mb: 2 }}>
-        {t('chores:schedules.definitionsHelp')}
-      </Alert>
-
-      <TableContainer component={Paper} sx={{ mb: 4 }}>
-        {selectedChoreIds.size > 0 && (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 1, bgcolor: 'action.hover' }}>
-            <Typography variant="body2" sx={{ ml: 1 }}>
-              {t('chores:schedules.selectedCount', { count: selectedChoreIds.size })}
-            </Typography>
-            <Button
-              size="small"
-              variant="contained"
-              color="error"
-              startIcon={<Delete />}
-              onClick={() => setBulkDeleteDialog(true)}
-            >
-              {t('chores:schedules.deleteSelected')}
-            </Button>
-            <Button size="small" onClick={() => setSelectedChoreIds(new Set())}>
-              {t('common:actions.clear')}
+      <AdminGroup
+        title={t('chores:schedules.definitionsHeading')}
+        action={(
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Tooltip title={t('common:actions.refresh')}>
+              <IconButton size="small" onClick={fetchAll} aria-label={t('common:actions.refresh')}>
+                <Refresh fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Button startIcon={<Add />} onClick={openCreateChore} variant="contained" size="small">
+              {t('chores:schedules.newChore')}
             </Button>
           </Box>
         )}
-        <Table size="small" sx={compactStackedTableSx}>
-          <TableHead>
-            <TableRow>
-              <TableCell padding="checkbox">
+      >
+        <AdminNote>{t('chores:schedules.definitionsHelp')}</AdminNote>
+        {chores.length > 0 && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', px: 1, py: 1, bgcolor: selectedChoreIds.size > 0 ? 'action.hover' : undefined }}>
+            <Checkbox
+              size="small"
+              checked={sortedChores.length > 0 && selectedChoreIds.size === sortedChores.length}
+              indeterminate={selectedChoreIds.size > 0 && selectedChoreIds.size < sortedChores.length}
+              onChange={toggleSelectAllChores}
+              slotProps={{ input: { 'aria-label': t('chores:schedules.selectAllChores') } }}
+            />
+            {selectedChoreIds.size > 0 ? (
+              <>
+                <Typography variant="body2">
+                  {t('chores:schedules.selectedCount', { count: selectedChoreIds.size })}
+                </Typography>
+                <Button size="small" variant="contained" color="error" startIcon={<Delete />} onClick={() => setBulkDeleteDialog(true)}>
+                  {t('chores:schedules.deleteSelected')}
+                </Button>
+                <Button size="small" onClick={() => setSelectedChoreIds(new Set())}>
+                  {t('common:actions.clear')}
+                </Button>
+              </>
+            ) : (
+              <Box sx={{ ml: 'auto' }}>
+                <AdminSortControl
+                  sort={choreSort}
+                  onSort={sortChores}
+                  options={[
+                    { value: 'title', label: t('common:labels.title') },
+                    { value: 'clams', label: t('chores:schedules.clams') },
+                    { value: 'schedules', label: t('chores:schedules.schedulesColumn') },
+                  ]}
+                />
+              </Box>
+            )}
+          </Box>
+        )}
+        {chores.length === 0 ? (
+          <AdminNote>{t('chores:schedules.noChores')}</AdminNote>
+        ) : sortedChores.map((c) => (
+          <AdminRow
+            key={c.id}
+            leading={(
+              <>
                 <Checkbox
                   size="small"
-                  checked={sortedChores.length > 0 && selectedChoreIds.size === sortedChores.length}
-                  indeterminate={selectedChoreIds.size > 0 && selectedChoreIds.size < sortedChores.length}
-                  disabled={sortedChores.length === 0}
-                  onChange={toggleSelectAllChores}
-                  slotProps={{ input: { 'aria-label': t('chores:schedules.selectAllChores') } }}
+                  checked={selectedChoreIds.has(c.id)}
+                  slotProps={{ input: { 'aria-label': t('chores:schedules.selectChore', { title: c.title }) } }}
+                  onChange={() => toggleChoreSelection(c.id)}
+                  sx={{ ml: -1 }}
                 />
-              </TableCell>
-              <SortableHeader column="title" sort={choreSort} onSort={sortChores}>
-                {t('common:labels.title')}
-              </SortableHeader>
-              <TableCell>{t('common:labels.description')}</TableCell>
-              <SortableHeader column="clams" sort={choreSort} onSort={sortChores}>
-                {t('chores:schedules.clams')}
-              </SortableHeader>
-              <SortableHeader column="schedules" sort={choreSort} onSort={sortChores}>
-                {t('chores:schedules.schedulesColumn')}
-              </SortableHeader>
-              <TableCell>{t('common:labels.actions')}</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {chores.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={6} align="center" sx={{ py: 3 }}>
-                  <Typography color="text.secondary">{t('chores:schedules.noChores')}</Typography>
-                </TableCell>
-              </TableRow>
-            ) : (
-              sortedChores.map(c => (
-                <TableRow key={c.id} selected={selectedChoreIds.has(c.id)}>
-                  {/* `stack-select`: on a phone it sits before the title, which stays the card's heading. */}
-                  <TableCell padding="checkbox" className="stack-select">
-                    <Checkbox
-                      size="small"
-                      checked={selectedChoreIds.has(c.id)}
-                      slotProps={{ input: { 'aria-label': t('chores:schedules.selectChore', { title: c.title }) } }}
-                      onChange={() => toggleChoreSelection(c.id)}
-                    />
-                  </TableCell>
-                  <TableCell data-label={t('common:labels.title')}>
-                    <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
-                      {/* Inline rather than its own column: this table stacks
-                          into rows on mobile, and an icon-only column would
-                          become a near-empty labelled row down there. */}
-                      {c.icon && <Box component="span" sx={{ mr: 0.75 }}>{c.icon}</Box>}
-                      {c.title}
-                    </Typography>
-                    {c.followups?.length > 0 && (
-                      <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
-                        {c.followups.map((f) => (
-                          <Chip key={f.id} size="small" variant="outlined" label={`↪ ${f.title}`} />
-                        ))}
-                      </Box>
-                    )}
-                  </TableCell>
-                  <TableCell
-                    data-label={t('common:labels.description')}
-                    className={c.description ? 'stack-full' : 'stack-empty'}
-                  >
-                    <Typography variant="body2" color="text.secondary">
-                      {c.description || <em style={{ opacity: 0.5 }}>{t('chores:schedules.noDescription')}</em>}
-                    </Typography>
-                  </TableCell>
-                  <TableCell data-label={t('chores:schedules.clams')} className={c.clam_value > 0 ? undefined : 'stack-empty'}>
-                    {c.clam_value > 0
-                      ? <Chip label={`${c.clam_value} 🥟`} size="small" color="primary" />
-                      : <Typography variant="caption" color="text.secondary">—</Typography>}
-                  </TableCell>
-                  <TableCell data-label={t('chores:schedules.schedulesColumn')}>
-                    <Tooltip describeChild title={getScheduleCountForChore(c.id) === 0 ? t('chores:schedules.addScheduleForChore') : t('chores:schedules.viewSchedules')}>
-                      <Chip
-                        label={`${getScheduleCountForChore(c.id)} schedule${getScheduleCountForChore(c.id) !== 1 ? 's' : ''}`}
-                        size="small"
-                        variant="outlined"
-                        onClick={() => handleScheduleCountClick(c)}
-                      />
-                    </Tooltip>
-                  </TableCell>
-                  <TableCell>
-                    <Box sx={{ display: 'flex', gap: 0.5 }}>
-                      <Tooltip title={t('chores:schedules.editChore')}>
-                        <IconButton size="small" color="primary" onClick={() => openEditChore(c)}>
-                          <Edit fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title={t('chores:schedules.deleteChoreAndSchedules')}>
-                        <IconButton size="small" color="error" onClick={() => setDeleteChoreDialog({ open: true, chore: c })}>
-                          <Delete fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    </Box>
-                  </TableCell>
-                </TableRow>
-              ))
+                <Box sx={{ width: 36, height: 36, borderRadius: 2, bgcolor: c.icon ? 'action.hover' : 'transparent', display: 'grid', placeItems: 'center', fontSize: 18 }}>
+                  {c.icon || ''}
+                </Box>
+              </>
             )}
-          </TableBody>
-        </Table>
-      </TableContainer>
+            label={c.title}
+            hint={c.description || <em style={{ opacity: 0.7 }}>{t('chores:schedules.noDescription')}</em>}
+            extra={c.followups?.length > 0 && (
+              <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', pl: { xs: 0, sm: 9 } }}>
+                {c.followups.map((f) => (
+                  <Chip key={f.id} size="small" variant="outlined" label={`↪ ${f.title}`} />
+                ))}
+              </Box>
+            )}
+            control={(
+              <>
+                {c.clam_value > 0 && <Chip label={`${c.clam_value} 🥟`} size="small" color="primary" />}
+                <Tooltip describeChild title={scheduleCount(c.id) === 0 ? t('chores:schedules.addScheduleForChore') : t('chores:schedules.viewSchedules')}>
+                  <Chip
+                    label={`${scheduleCount(c.id)} schedule${scheduleCount(c.id) !== 1 ? 's' : ''}`}
+                    size="small"
+                    variant="outlined"
+                    onClick={() => handleScheduleCountClick(c)}
+                  />
+                </Tooltip>
+                <Tooltip title={t('chores:schedules.editChore')}>
+                  <IconButton size="small" onClick={() => openEditChore(c)} aria-label={t('chores:schedules.editChore')}>
+                    <Edit fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title={t('chores:schedules.deleteChoreAndSchedules')}>
+                  <IconButton size="small" color="error" onClick={() => setDeleteChoreDialog({ open: true, chore: c })} aria-label={t('chores:schedules.deleteChoreAndSchedules')}>
+                    <Delete fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </>
+            )}
+          />
+        ))}
+      </AdminGroup>
 
       {/* ── SCHEDULES ────────────────────────────────────── */}
-      <Box ref={schedulesSectionRef} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5, scrollMarginTop: 8 }}>
-        <Typography variant="h6">{t('chores:schedules.schedulesColumn')}</Typography>
-        <Button startIcon={<Add />} onClick={() => openCreateSchedule()} variant="contained" size="small">
-          {t('chores:schedules.newSchedule')}
-        </Button>
-      </Box>
-
-      <Alert severity="info" sx={{ mb: 2 }}>
-        {t('chores:schedules.schedulesHelp')}
-      </Alert>
-
-      <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
-        <FormControl size="small" sx={{ minWidth: 160 }}>
-          <InputLabel>{t('chores:schedules.filterByUser')}</InputLabel>
-          <Select value={filterUser} label={t('chores:schedules.filterByUser')} onChange={(e) => setFilterUser(e.target.value)}>
-            <MenuItem value="">{t('chores:schedules.allUsers')}</MenuItem>
-            <MenuItem value="0">{t('chores:schedules.unassignedBonus')}</MenuItem>
-            {users.map(u => <MenuItem key={u.id} value={u.id}>{u.username}</MenuItem>)}
-          </Select>
-        </FormControl>
-
-        <FormControl size="small" sx={{ minWidth: 180 }}>
-          <InputLabel>{t('chores:schedules.filterByChore')}</InputLabel>
-          <Select value={filterChore} label={t('chores:schedules.filterByChore')} onChange={(e) => setFilterChore(e.target.value)}>
-            <MenuItem value="">{t('chores:schedules.allChores')}</MenuItem>
-            {choresByTitle.map(c => <MenuItem key={c.id} value={c.id}>{c.title}</MenuItem>)}
-          </Select>
-        </FormControl>
-
-        {(filterUser || filterChore) && (
-          <Button size="small" onClick={() => { setFilterUser(''); setFilterChore(''); }}>
-            {t('chores:schedules.clearFilters')}
-          </Button>
-        )}
-
-        <Typography variant="body2" color="text.secondary" sx={{ alignSelf: 'center', ml: 'auto' }}>
-          {filteredSchedules.length} schedule{filteredSchedules.length !== 1 ? 's' : ''}
-        </Typography>
-      </Box>
-
-      <TableContainer component={Paper}>
-        <Table size="small" sx={compactStackedTableSx}>
-          <TableHead>
-            <TableRow>
-              <SortableHeader column="chore" sort={scheduleSort} onSort={sortSchedules}>
-                {t('chores:schedules.chore')}
-              </SortableHeader>
-              <SortableHeader column="assignedTo" sort={scheduleSort} onSort={sortSchedules}>
-                {t('chores:schedules.assignedTo')}
-              </SortableHeader>
-              <SortableHeader column="nextOccurrence" sort={scheduleSort} onSort={sortSchedules}>
-                {t('chores:schedules.nextOccurrence')}
-              </SortableHeader>
-              <TableCell>{t('chores:schedules.duration')}</TableCell>
-              <SortableHeader column="clams" sort={scheduleSort} onSort={sortSchedules}>
-                {t('chores:schedules.clams')}
-              </SortableHeader>
-              <TableCell>{t('chores:schedules.visible')}</TableCell>
-              <TableCell>{t('common:labels.actions')}</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {filteredSchedules.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
-                  <Typography color="text.secondary">{t('chores:schedules.noSchedules')}</Typography>
-                </TableCell>
-              </TableRow>
-            ) : (
-              filteredSchedules.map((s) => (
-                <TableRow key={s.id} sx={{ opacity: s.visible ? 1 : 0.5 }}>
-                  <TableCell data-label={t('chores:schedules.chore')}>
-                    <Box>
-                      <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
-                        {s.title}
-                        {s.triggered_on && (
-                          <Chip label={t('chores:followups.chip')} size="small" variant="outlined" sx={{ ml: 1 }} />
-                        )}
-                      </Typography>
-                      {s.followup_of && (
-                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                          {t('chores:widget.followupOf', { title: s.followup_of })}
-                        </Typography>
-                      )}
-                      {s.description && (
-                        <Typography variant="caption" color="text.secondary">{s.description}</Typography>
-                      )}
-                    </Box>
-                  </TableCell>
-                  <TableCell data-label={t('chores:schedules.assignedTo')}>
-                    <Chip
-                      label={getUserName(s.user_id)}
-                      size="small"
-                      variant={s.user_id ? 'filled' : 'outlined'}
-                      color={s.user_id ? 'primary' : 'default'}
-                    />
-                  </TableCell>
-                  {/* Crontab column removed (issue #122): the raw expression is
-                      redundant next to Next Occurrence and still visible when
-                      editing the schedule. */}
-                  <TableCell data-label={t('chores:schedules.nextOccurrence')}>
-                    <Typography variant="body2" sx={{ fontSize: '0.75rem' }}>
-                      {getNextOccurrence(s.crontab)}
-                    </Typography>
-                  </TableCell>
-                  <TableCell data-label={t('chores:schedules.duration')}>
-                    {s.crontab && s.duration === 'until-completed' ? (
-                      <Chip label={t('chores:schedules.untilCompleted')} size="small" color="warning" />
-                    ) : s.crontab && s.duration === 'once-completed' ? (
-                      <Chip label={s.interval
-                          ? t('chores:schedules.onceCompletedWithInterval', { interval: formatScheduleInterval(s.interval) })
-                          : t('chores:schedules.onceCompleted')} size="small" color="secondary" />
-                    ) : s.crontab ? (
-                      <Chip label={t('chores:schedules.dayOf')} size="small" variant="outlined" />
-                    ) : (
-                      <Typography variant="caption" color="text.secondary">—</Typography>
-                    )}
-                  </TableCell>
-                  <TableCell data-label={t('chores:schedules.clams')} className={s.clam_value > 0 ? undefined : 'stack-empty'}>
-                    {s.clam_value > 0
-                      ? <Chip label={`${s.clam_value} 🥟`} size="small" color="primary" />
-                      : <Typography variant="caption" color="text.secondary">—</Typography>}
-                  </TableCell>
-                  <TableCell data-label={t('chores:schedules.visible')}>
-                    <Tooltip title={s.visible ? 'Click to hide' : 'Click to show'}>
-                      <Switch size="small" checked={!!s.visible} onChange={() => handleToggleVisible(s)} />
-                    </Tooltip>
-                  </TableCell>
-                  <TableCell>
-                    <Box sx={{ display: 'flex', gap: 0.5 }}>
-                      <Tooltip title={t('common:actions.edit')}>
-                        <IconButton size="small" color="primary" onClick={() => openEditSchedule(s)}>
-                          <Edit fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title={t('common:actions.duplicate')}>
-                        <IconButton size="small" onClick={() => openCopySchedule(s)}>
-                          <ContentCopy fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title={t('common:actions.delete')}>
-                        <IconButton size="small" color="error" onClick={() => setDeleteScheduleDialog({ open: true, schedule: s })}>
-                          <Delete fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    </Box>
-                  </TableCell>
-                </TableRow>
-              ))
+      <Box ref={schedulesSectionRef} sx={{ scrollMarginTop: 8 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap', minHeight: 32, mb: 1, px: 0.5 }}>
+          <Typography variant="overline" component="h3" sx={{ color: 'text.secondary', fontWeight: 600, lineHeight: 1.6, letterSpacing: '0.06em' }}>
+            {t('chores:schedules.schedulesColumn')}
+          </Typography>
+          <ToggleButtonGroup
+            size="small"
+            exclusive
+            value={scheduleView}
+            onChange={(_, view) => view && setScheduleView(view)}
+            aria-label={t('chores:board.viewLabel')}
+          >
+            <ToggleButton value="person" sx={{ textTransform: 'none', px: 1.5 }}>{t('chores:board.viewByPerson')}</ToggleButton>
+            <ToggleButton value="list" sx={{ textTransform: 'none', px: 1.5 }}>{t('chores:board.viewList')}</ToggleButton>
+          </ToggleButtonGroup>
+        </Box>
+        {scheduleView === 'person' ? (
+          <ChoreScheduleBoard
+            schedules={schedules}
+            chores={chores}
+            users={users}
+            onChanged={fetchAll}
+            onEditSchedule={openEditSchedule}
+            onToggleVisible={handleToggleVisible}
+            onDeleteSchedule={(s) => setDeleteScheduleDialog({ open: true, schedule: s })}
+            onCreateChore={openCreateChore}
+            showMessage={showMessage}
+          />
+        ) : (
+        <AdminGroup
+          action={(
+            <Button startIcon={<Add />} onClick={() => openCreateSchedule()} variant="contained" size="small">
+              {t('chores:schedules.newSchedule')}
+            </Button>
+          )}
+        >
+          <AdminNote>{t('chores:schedules.schedulesHelp')}</AdminNote>
+          <Box sx={{ display: 'flex', gap: 1.5, px: 2, py: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
+            <FormControl size="small" sx={{ minWidth: 150, flex: { xs: 1, sm: 'none' } }}>
+              <InputLabel id="schedule-filter-by-user-label">{t('chores:schedules.filterByUser')}</InputLabel>
+              <Select labelId="schedule-filter-by-user-label" value={filterUser} label={t('chores:schedules.filterByUser')} onChange={(e) => setFilterUser(e.target.value)}>
+                <MenuItem value="">{t('chores:schedules.allUsers')}</MenuItem>
+                <MenuItem value="0">{t('chores:schedules.unassignedBonus')}</MenuItem>
+                {users.map(u => <MenuItem key={u.id} value={u.id}>{u.username}</MenuItem>)}
+              </Select>
+            </FormControl>
+            <FormControl size="small" sx={{ minWidth: 170, flex: { xs: 1, sm: 'none' } }}>
+              <InputLabel id="schedule-filter-by-chore-label">{t('chores:schedules.filterByChore')}</InputLabel>
+              <Select labelId="schedule-filter-by-chore-label" value={filterChore} label={t('chores:schedules.filterByChore')} onChange={(e) => setFilterChore(e.target.value)}>
+                <MenuItem value="">{t('chores:schedules.allChores')}</MenuItem>
+                {choresByTitle.map(c => <MenuItem key={c.id} value={c.id}>{c.title}</MenuItem>)}
+              </Select>
+            </FormControl>
+            {(filterUser || filterChore) && (
+              <Button size="small" onClick={() => { setFilterUser(''); setFilterChore(''); }}>
+                {t('chores:schedules.clearFilters')}
+              </Button>
             )}
-          </TableBody>
-        </Table>
-      </TableContainer>
+            <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <Typography variant="body2" color="text.secondary">
+                {filteredSchedules.length} schedule{filteredSchedules.length !== 1 ? 's' : ''}
+              </Typography>
+              <AdminSortControl
+                sort={scheduleSort}
+                onSort={sortSchedules}
+                options={[
+                  { value: 'chore', label: t('chores:schedules.chore') },
+                  { value: 'assignedTo', label: t('chores:schedules.assignedTo') },
+                  { value: 'nextOccurrence', label: t('chores:schedules.nextOccurrence') },
+                  { value: 'clams', label: t('chores:schedules.clams') },
+                ]}
+              />
+            </Box>
+          </Box>
+          {filteredSchedules.length === 0 ? (
+            <AdminNote>{t('chores:schedules.noSchedules')}</AdminNote>
+          ) : filteredSchedules.map((s) => (
+            <AdminRow
+              key={s.id}
+              disabled={!s.visible}
+              label={(
+                <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                  {s.title}
+                  {s.triggered_on && <Chip label={t('chores:followups.chip')} size="small" variant="outlined" />}
+                </Box>
+              )}
+              hint={(
+                <>
+                  {s.followup_of && <Box component="span" sx={{ display: 'block' }}>{t('chores:widget.followupOf', { title: s.followup_of })}</Box>}
+                  {s.description && <Box component="span" sx={{ display: 'block' }}>{s.description}</Box>}
+                  <Box component="span" sx={{ display: 'block' }}>
+                    {`${t('chores:schedules.nextOccurrence')}: ${getNextOccurrence(s.crontab)}`}
+                  </Box>
+                </>
+              )}
+              extra={(
+                <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <Chip
+                    label={getUserName(s.user_id)}
+                    size="small"
+                    variant={s.user_id ? 'filled' : 'outlined'}
+                    color={s.user_id ? 'primary' : 'default'}
+                  />
+                  {s.crontab && s.duration === 'until-completed' ? (
+                    <Chip label={t('chores:schedules.untilCompleted')} size="small" color="warning" />
+                  ) : s.crontab && s.duration === 'once-completed' ? (
+                    <Chip label={s.interval
+                        ? t('chores:schedules.onceCompletedWithInterval', { interval: formatScheduleInterval(s.interval) })
+                        : t('chores:schedules.onceCompleted')} size="small" color="secondary" />
+                  ) : s.crontab ? (
+                    <Chip label={t('chores:schedules.dayOf')} size="small" variant="outlined" />
+                  ) : null}
+                  {s.clam_value > 0 && <Chip label={`${s.clam_value} 🥟`} size="small" color="primary" />}
+                </Box>
+              )}
+              control={(
+                <>
+                  <Tooltip title={s.visible ? 'Click to hide' : 'Click to show'}>
+                    <Switch
+                      size="small"
+                      checked={!!s.visible}
+                      onChange={() => handleToggleVisible(s)}
+                      slotProps={{ input: { 'aria-label': t('chores:schedules.visible') } }}
+                    />
+                  </Tooltip>
+                  <Tooltip title={t('common:actions.edit')}>
+                    <IconButton size="small" onClick={() => openEditSchedule(s)} aria-label={t('common:actions.edit')}>
+                      <Edit fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title={t('common:actions.duplicate')}>
+                    <IconButton size="small" onClick={() => openCopySchedule(s)} aria-label={t('common:actions.duplicate')}>
+                      <ContentCopy fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title={t('common:actions.delete')}>
+                    <IconButton size="small" color="error" onClick={() => setDeleteScheduleDialog({ open: true, schedule: s })} aria-label={t('common:actions.delete')}>
+                      <Delete fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </>
+              )}
+            />
+          ))}
+        </AdminGroup>
+        )}
+      </Box>
 
       {/* ── CHORE DIALOG ─────────────────────────────────── */}
       <Dialog
@@ -1082,7 +1040,7 @@ export default function ChoreSchedulesTab({ setSaveMessage }) {
           }
         }}
       >
-        <DialogTitle>{editingChore ? 'Edit Chore' : 'New Chore'}</DialogTitle>
+        <DialogTitle>{editingChore ? t('chores:schedules.editChore') : t('chores:schedules.newChore')}</DialogTitle>
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
             <TextField
@@ -1138,8 +1096,9 @@ export default function ChoreSchedulesTab({ setSaveMessage }) {
                   >
                     <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
                       <FormControl fullWidth size="small">
-                        <InputLabel>{t('chores:followups.give')}</InputLabel>
+                        <InputLabel id={`followup-${index}-give-label`}>{t('chores:followups.give')}</InputLabel>
                         <Select
+                          labelId={`followup-${index}-give-label`}
                           value={row.followup_chore_id}
                           label={t('chores:followups.give')}
                           onChange={(e) => updateFollowupRow(index, { followup_chore_id: e.target.value })}
@@ -1161,8 +1120,9 @@ export default function ChoreSchedulesTab({ setSaveMessage }) {
                       </Tooltip>
                     </Box>
                     <FormControl fullWidth size="small">
-                      <InputLabel>{t('chores:followups.to')}</InputLabel>
+                      <InputLabel id={`followup-${index}-to-label`}>{t('chores:followups.to')}</InputLabel>
                       <Select
+                        labelId={`followup-${index}-to-label`}
                         multiple
                         value={row.user_ids}
                         label={t('chores:followups.to')}
@@ -1179,8 +1139,9 @@ export default function ChoreSchedulesTab({ setSaveMessage }) {
                     </FormControl>
                     <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
                       <FormControl size="small" sx={{ minWidth: 150 }}>
-                        <InputLabel>{t('chores:followups.when')}</InputLabel>
+                        <InputLabel id={`followup-${index}-when-label`}>{t('chores:followups.when')}</InputLabel>
                         <Select
+                          labelId={`followup-${index}-when-label`}
                           value={row.timing}
                           label={t('chores:followups.when')}
                           onChange={(e) => updateFollowupRow(index, { timing: e.target.value })}
@@ -1309,12 +1270,13 @@ export default function ChoreSchedulesTab({ setSaveMessage }) {
           }
         }}
       >
-        <DialogTitle>{editingSchedule ? 'Edit Schedule' : 'New Schedule'}</DialogTitle>
+        <DialogTitle>{editingSchedule ? t('chores:schedules.editSchedule') : t('chores:schedules.newSchedule')}</DialogTitle>
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
             <FormControl fullWidth size="small" required>
-              <InputLabel>{t('chores:schedules.chore')}</InputLabel>
+              <InputLabel id="schedule-chore-label">{t('chores:schedules.chore')}</InputLabel>
               <Select
+                labelId="schedule-chore-label"
                 value={scheduleForm.chore_id}
                 label={t('chores:schedules.chore')}
                 onChange={(e) => updateScheduleForm({ chore_id: e.target.value })}
@@ -1332,8 +1294,9 @@ export default function ChoreSchedulesTab({ setSaveMessage }) {
 
             {editingSchedule ? (
               <FormControl fullWidth size="small">
-                <InputLabel>{t('chores:schedules.assignedTo')}</InputLabel>
+                <InputLabel id="schedule-assigned-to-label">{t('chores:schedules.assignedTo')}</InputLabel>
                 <Select
+                  labelId="schedule-assigned-to-label"
                   value={scheduleForm.user_id}
                   label={t('chores:schedules.assignedTo')}
                   onChange={(e) => updateScheduleForm({ user_id: e.target.value })}
@@ -1347,8 +1310,9 @@ export default function ChoreSchedulesTab({ setSaveMessage }) {
               // each, exactly as if added one at a time. None picked is an
               // unassigned bonus chore, as before.
               <FormControl fullWidth size="small">
-                <InputLabel shrink>{t('chores:schedules.assignedTo')}</InputLabel>
+                <InputLabel shrink id="schedule-assigned-to-label">{t('chores:schedules.assignedTo')}</InputLabel>
                 <Select
+                  labelId="schedule-assigned-to-label"
                   multiple
                   displayEmpty
                   notched
@@ -1415,8 +1379,9 @@ export default function ChoreSchedulesTab({ setSaveMessage }) {
                 </RadioGroup>
 
                 <FormControl fullWidth size="small">
-                  <InputLabel>{t('chores:schedules.duration')}</InputLabel>
+                  <InputLabel id="schedule-duration-label">{t('chores:schedules.duration')}</InputLabel>
                   <Select
+                    labelId="schedule-duration-label"
                     value={scheduleForm.duration}
                     label={t('chores:schedules.duration')}
                     onChange={(e) => updateScheduleForm({ duration: e.target.value })}
@@ -1453,8 +1418,9 @@ export default function ChoreSchedulesTab({ setSaveMessage }) {
                     </Grid>
                     <Grid size={6}>
                       <FormControl fullWidth size="small">
-                        <InputLabel>{t('chores:schedules.sleepUnit')}</InputLabel>
+                        <InputLabel id="schedule-sleep-unit-label">{t('chores:schedules.sleepUnit')}</InputLabel>
                         <Select
+                          labelId="schedule-sleep-unit-label"
                           value={scheduleForm.sleepUnit}
                           label={t('chores:schedules.sleepUnit')}
                           onChange={(e) => updateScheduleForm({ sleepUnit: e.target.value })}
@@ -1471,8 +1437,9 @@ export default function ChoreSchedulesTab({ setSaveMessage }) {
 
                 {scheduleForm.scheduleMode === 'preset' && (
                   <FormControl fullWidth size="small">
-                    <InputLabel>{t('chores:schedules.schedulePreset')}</InputLabel>
+                    <InputLabel id="schedule-schedule-preset-label">{t('chores:schedules.schedulePreset')}</InputLabel>
                     <Select
+                      labelId="schedule-schedule-preset-label"
                       value={scheduleForm.selectedPreset}
                       label={t('chores:schedules.schedulePreset')}
                       onChange={(e) => updateScheduleForm({ selectedPreset: e.target.value })}

@@ -172,6 +172,8 @@ const { sniffImage, IMAGE_MIMES } = require('./utils/imageType');
 const { inlineCssImports } = require('./utils/inlineCssImports');
 const themeStore = require('./services/themeStore');
 const googlePhotosPicker = require('./services/googlePhotosPicker');
+const photoExif = require('./services/photoExif');
+const { placeName } = require('./services/placeLookup');
 const homeAssistant = require('./services/homeAssistant');
 const weatherService = require('./services/weather');
 const { computeSunTimes } = require('./services/weather/sun');
@@ -194,6 +196,7 @@ const { pluginFrameShimScript } = require('./utils/pluginFrameShims');
 const pluginRequestPolicy = require('./utils/pluginRequestPolicy');
 const { isCrossSiteWrite } = require('./utils/crossSiteWrites');
 const adminPin = require('./utils/adminPin');
+const { resolveDbPath } = require('./utils/dbPath');
 const { sqliteUtcToIso, sqliteUtcToMs } = require('./utils/sqliteTime');
 const {
   DEVICE_NAME_RULE_MESSAGE,
@@ -1045,6 +1048,20 @@ function extractPluginManifest(htmlContent) {
   if (manifest.expand !== undefined && typeof manifest.expand !== 'boolean') {
     errors.push('expand must be a boolean.');
   }
+  // Its size on the dashboard, in grid squares (12 columns across): the
+  // smallest it may be resized to (otherwise 2 by 2) and the size it starts
+  // at (otherwise 6 by 4).
+  if (manifest.size !== undefined) {
+    const size = manifest.size;
+    const square = (value, max) => value === undefined || (Number.isInteger(value) && value >= 1 && value <= max);
+    if (!size || typeof size !== 'object' || Array.isArray(size)
+      || !square(size.minWidth, 12) || !square(size.minHeight, 24) || !square(size.width, 12) || !square(size.height, 24)) {
+      errors.push('size must be an object of whole grid squares: minWidth and width 1 to 12, minHeight and height 1 to 24.');
+    } else if ((size.width !== undefined && size.minWidth !== undefined && size.width < size.minWidth)
+      || (size.height !== undefined && size.minHeight !== undefined && size.height < size.minHeight)) {
+      errors.push('size: width and height must not be smaller than minWidth and minHeight.');
+    }
+  }
   // Home Assistant entities the plugin may read and operate through
   // /api/plugin/v1/ha (issue #252), under the same rules as a built panel.
   if (manifest.homeAssistant !== undefined) {
@@ -1214,6 +1231,8 @@ const haPanels = registerHaPanelRoutes(fastify, {
   ha: homeAssistant,
   demoMode: DEMO_MODE,
   installPluginRow,
+  // A panel resized where it is placed: every display reloads its layouts.
+  householdChanged: () => householdChanges.bump('settings'),
   // A plugin's household setting: play_url checks addresses against the
   // media server one of them names (manifest homeAssistant.playUrlsFrom).
   readPluginSetting: (pluginId, key) => {
@@ -2210,11 +2229,7 @@ fastify.post('/api/widgets/github/install', async (request, reply) => {
 
 // Initialize database. Demo mode uses an in-memory database so all data is
 // discarded when the container stops.
-const dbPath = DEMO_MODE
-  ? ':memory:'
-  : (process.env.DB_PATH
-    ? path.resolve(process.env.DB_PATH)
-    : path.resolve(__dirname, 'data', 'tasks.db'));
+const dbPath = DEMO_MODE ? ':memory:' : resolveDbPath();
 console.log('Database path:', dbPath);
 let db; // Declare db variable outside to hold the single instance
 
@@ -7147,6 +7162,29 @@ fastify.get('/api/photo-sources/:sourceId/uploaded', async (request, reply) => {
   }
 });
 
+// HomeGlow Photos - how many of a source's photos carry a date and a place,
+// for the line on the Photos page. `reading` while the startup read of photos
+// uploaded before this version is still under way.
+fastify.get('/api/photo-sources/:sourceId/uploaded/details', async (request, reply) => {
+  const { sourceId } = request.params;
+  try {
+    const source = loadHomeGlowPhotoSourceOr404(sourceId, reply);
+    if (!source) return;
+    const rows = db.prepare(
+      'SELECT taken_on, latitude, longitude, details_read_at FROM homeglow_photos WHERE source_id = ?'
+    ).all(sourceId);
+    return {
+      total: rows.length,
+      withDate: rows.filter((r) => r.taken_on).length,
+      withPlace: rows.filter((r) => r.latitude != null && placeName(r.latitude, r.longitude)).length,
+      reading: photoExif.isReadingPhotoDetails() || rows.some((r) => !r.details_read_at),
+    };
+  } catch (error) {
+    console.error('Error counting photo details:', error);
+    reply.status(500).send({ error: 'Failed to count photo details' });
+  }
+});
+
 // HomeGlow Photos - serve a single uploaded file
 fastify.get('/api/photo-sources/:sourceId/uploaded/:photoId/file', async (request, reply) => {
   const { sourceId, photoId } = request.params;
@@ -7214,9 +7252,12 @@ fastify.post('/api/photo-sources/:sourceId/uploaded', async (request, reply) => 
         const filename = `${crypto.randomBytes(12).toString('hex')}.${sniffed.ext}`;
         const filePath = path.join(uploadDir, filename);
         await fs.writeFile(filePath, buffer);
+        // The day it was taken and where, for the screensaver's photo details.
+        const details = await photoExif.readPhotoDetails(buffer);
         const info = db.prepare(
-          `INSERT INTO homeglow_photos (source_id, filename, original_name, mime_type, size) VALUES (?, ?, ?, ?, ?)`
-        ).run(sourceId, filename, part.filename || null, sniffed.mime, buffer.length);
+          `INSERT INTO homeglow_photos (source_id, filename, original_name, mime_type, size, taken_on, latitude, longitude, details_read_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+        ).run(sourceId, filename, part.filename || null, sniffed.mime, buffer.length, details.takenOn, details.latitude, details.longitude);
         added.push({ id: info.lastInsertRowid, filename, original_name: part.filename });
       } catch (err) {
         console.error('Upload failure for part:', err);
@@ -7697,17 +7738,23 @@ fastify.get('/api/photo-items', async (request, reply) => {
           return photos;
         } else if (source.type === 'HomeGlowPhotos') {
           const rows = db.prepare(
-            'SELECT id, filename FROM homeglow_photos WHERE source_id = ? ORDER BY uploaded_at DESC'
+            'SELECT id, filename, taken_on, latitude, longitude FROM homeglow_photos WHERE source_id = ? ORDER BY uploaded_at DESC'
           ).all(source.id);
-          const photos = rows.map((r) => ({
-            id: `homeglow-${r.id}`,
-            url: `/api/photo-sources/${source.id}/uploaded/${r.id}/file`,
-            thumbnail: `/api/photo-sources/${source.id}/uploaded/${r.id}/file`,
-            type: 'IMAGE',
-            source_id: source.id,
-            source_name: source.name,
-            source_type: 'HomeGlowPhotos',
-          }));
+          const photos = rows.map((r) => {
+            // What the camera recorded: no people (services/photoExif.js).
+            const place = r.latitude != null ? placeName(r.latitude, r.longitude) : null;
+            return {
+              ...(r.taken_on ? { takenOn: r.taken_on } : {}),
+              ...(place ? { place } : {}),
+              id: `homeglow-${r.id}`,
+              url: `/api/photo-sources/${source.id}/uploaded/${r.id}/file`,
+              thumbnail: `/api/photo-sources/${source.id}/uploaded/${r.id}/file`,
+              type: 'IMAGE',
+              source_id: source.id,
+              source_name: source.name,
+              source_type: 'HomeGlowPhotos',
+            };
+          });
           shuffleInPlace(photos);
           return photos;
         }
@@ -7767,7 +7814,13 @@ fastify.post('/api/admin-pin/set', async (request, reply) => {
   }
 
   try {
+    // Changing the PIN takes the current one; setting the first doesn't. A
+    // forgotten PIN is reset on the server itself (reset-admin-pin.js).
+    const current = await adminPin.checkAdminPin(db, request.body.currentPin);
+    if (!current.ok) return adminPin.refusePin(reply, current, 'Enter the current PIN to change it.');
     await adminPin.setAdminPin(db, pin);
+    // A lockout left from before a server-side reset would refuse the new PIN.
+    adminPin.resetPinAttempts();
     return { success: true, message: 'PIN set successfully' };
   } catch (error) {
     console.error('Error setting PIN:', error);
@@ -7778,7 +7831,10 @@ fastify.post('/api/admin-pin/set', async (request, reply) => {
 fastify.delete('/api/admin-pin', async (request, reply) => {
   if (demoBlocked(reply)) return;
   try {
-    db.prepare('DELETE FROM admin_pin WHERE id = 1').run();
+    // Takes the current PIN, like changing it does.
+    const current = await adminPin.checkAdminPin(db, request.body?.pin);
+    if (!current.ok) return adminPin.refusePin(reply, current, 'Enter the current PIN to remove it.');
+    adminPin.clearAdminPin(db);
     return { success: true, message: 'PIN cleared successfully' };
   } catch (error) {
     console.error('Error clearing PIN:', error);
@@ -7929,6 +7985,10 @@ const start = async () => {
 
     await fastify.listen({ port: process.env.PORT || 5000, host: '0.0.0.0' });
     console.log(`Server running on port ${process.env.PORT || 5000}`);
+    // Dates and places for photos uploaded before the server read them, once.
+    photoExif.readPendingPhotoDetails(db, path.join(UPLOADS_ROOT, 'homeglow-photos'))
+      .then((read) => { if (read) console.log(`Photo details: read ${read} uploaded photo(s)`); })
+      .catch((error) => console.warn('Photo details: could not read uploaded photos:', error.message));
     // Panels on the dashboard: open the live link to Home Assistant.
     try {
       haPanels.refreshWatched();

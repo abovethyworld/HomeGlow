@@ -67,6 +67,8 @@
     "clamRewardFailed": "Failed to save clam reward. Please try again.",
     "choreSoundsSaved": "Chore sound settings saved.",
     "choreSoundsFailed": "Failed to save chore sound settings.",
+    "choreSettingsSaved": "Chore settings saved.",
+    "choreSettingsFailed": "Could not save the chore settings.",
     "widgetNeedsTab": "Each enabled widget must have at least one tab selected.",
     "widgetSettingsSaved": "Widget settings saved successfully.",
     "widgetSettingsFailed": "Failed to save widget settings. Please try again.",
@@ -100,7 +102,7 @@
     "setupDeleteFailed": "Failed to delete setup. Please try again.",
     "screensaverSaved": "Screensaver settings saved for this display.",
     "screensaverFailed": "Failed to save screensaver settings. Please try again.",
-    "vacationSaved": "Vacation mode settings saved for this display.",
+    "vacationSaved": "Vacation mode saved for the whole household.",
     "vacationFailed": "Failed to save vacation mode settings. Please try again.",
     "autoDarkNeedsLocation": "Auto mode needs a location to work out sunrise and sunset.",
     "userDeleteFailed": "Failed to delete user. Please try again.",
@@ -133,7 +135,10 @@
     "enter": "Enter Admin PIN",
     "update": "Update Admin PIN",
     "setPin": "Set Admin PIN",
-    "forgetDevices": "Require PIN on all devices again"
+    "forgetDevices": "Require PIN on all devices again",
+    "currentForChange": "Enter the current PIN",
+    "currentForRemove": "Enter the PIN to remove it",
+    "currentWrong": "That isn't the current PIN."
   },
   "refresh": {
     "disabled": "Disabled",
@@ -311,7 +316,7 @@
     },
     "coffeeTableRate": "Seconds between photos",
     "photoDetails": "Show photo details",
-    "photoDetailsHelp": "When it was taken, who is in it and where, on each photo, as far as the photo says. Immich photos can show all three, Google Photos only the date.",
+    "photoDetailsHelp": "When it was taken, who is in it and where, on each photo, as far as the photo says. Immich photos can show all three, uploaded photos the date and place, Google Photos only the date.",
     "expand": {
       "heading": "Expand widgets",
       "enable": "Let widgets expand",
@@ -486,7 +491,8 @@
     "requirements": "PIN Requirements:",
     "currentStatus": "Current Status:",
     "removePin": "Remove PIN",
-    "changeNote": "Changing your PIN will require you to use the new PIN on your next admin panel access."
+    "changeNote": "Changing your PIN will require you to use the new PIN on your next admin panel access.",
+    "forgotPin": "Forgot the PIN? It can only be reset on the server itself: see “Resetting a forgotten admin PIN” in the deployment guide."
   },
   "controls": {
     "heading": "Controls on Displays",
@@ -804,6 +810,9 @@
     "layoutList": "List",
     "columns": "Tiles across",
     "columnsAuto": "Fit the widget",
+    "style": "Look",
+    "styles": { "classic": "Classic", "bold": "Bold" },
+    "animate": "Animate icons when on",
     "addEntities": "Add devices",
     "addEntitiesHelp": "Search by name, or browse by area. Each one becomes a tile.",
     "noArea": "No area",
@@ -830,12 +839,21 @@
     "moveDown": "Move down",
     "remove": "Remove",
     "preview": "Preview",
-    "previewSizes": {
-      "small": "Small",
-      "medium": "Medium",
-      "large": "Large"
+    "tileSizes": { "fx1": "Full width", "fx2": "Full width × 2" },
+    "widgetSize": {
+      "title": "Size on the dashboard",
+      "width": "Width",
+      "height": "Height",
+      "columns_one": "{{count}} column",
+      "columns_other": "{{count}} columns",
+      "rows_one": "{{count}} row",
+      "rows_other": "{{count}} rows",
+      "best_one": "{{count}} tile fits best at {{w}} × {{h}}",
+      "best_other": "{{count}} tiles fit best at {{w}} × {{h}}",
+      "resizePlaced": "Also resize it where it is on the dashboard now",
+      "help": "Grid squares, 12 columns across. About {{width}} × {{height}} pixels on this screen. A new panel starts at this size. Its controls work once it is saved.",
+      "shrunk": "Shown at {{percent}}%."
     },
-    "previewHelp": "The panel as it looks now, at three widget sizes. Its controls work once it is saved.",
     "save": "Save panel",
     "history": {
       "title": "What panels did",

@@ -48,7 +48,7 @@ folder name must match the manifest's `id`.
 
 | Field | Required | Meaning |
 | --- | --- | --- |
-| `manifestVersion` | yes | `1`; `2` for a theme that uses `ornaments`, the meter tokens or `clumps`; `3` for one that uses the button tokens or curved flybys; `4` for one with `weather` scenes or a `flash` layer; `5` for one that uses orbits; `6` for one with a confetti `cast`; `7` for one with pictures that bend (`flex`); `8` for one whose frames saturate what is behind them (`saturate()` in `--hg-frame-backdrop`); `9` for one with a flyby `lens`. A HomeGlow older than the version refuses the theme. |
+| `manifestVersion` | yes | `1`; `2` for a theme that uses `ornaments`, the meter tokens or `clumps`; `3` for one that uses the button tokens or curved flybys; `4` for one with `weather` scenes or a `flash` layer; `5` for one that uses orbits; `6` for one with a confetti `cast`; `7` for one with pictures that bend (`flex`); `8` for one whose frames saturate what is behind them (`saturate()` in `--hg-frame-backdrop`); `9` for one with a flyby `lens`; `10` for one whose particles `swing` or `blur`. A HomeGlow older than the version refuses the theme. |
 | `id` | yes | Lowercase slug (a-z, 0-9, hyphens), the same as the folder name. |
 | `name` | yes | Shown in the theme picker. |
 | `version`, `author`, `description` | | As in a plugin manifest. The author shows as "by ...". |
@@ -83,6 +83,7 @@ the most useful:
 | `--hg-frame-backdrop` | `none`, `blur(0-24px)`, `saturate(0-300%)`, or a blur and a saturate | What a frame does to the page behind it: frosted glass. Only over a still scene (§5). `saturate()` needs manifest version 8 |
 | `--dock-bg`, `--dock-active-bg`, `--dock-active-image` | color, gradient | The dock |
 | `--hg-font-body`, `--hg-font-heading` | font list | Type |
+| `--hg-heading-transform`, `--hg-heading-letter-spacing` | `none`, `uppercase`, `capitalize` or `lowercase`; length | Plugin headings and the plugin widget header, its main button included. See [Headings in capitals](#headings-in-capitals) |
 | `--hg-grid-gap` | `0`, `8px`, `16px` or `24px` | The gap between widgets; rows keep their pitch |
 | `--hg-meter-track`, `--hg-meter-fill` | color | The empty and filled parts of anything showing a level or progress |
 | `--hg-meter-thickness`, `--hg-meter-cap` | `1px` to `12px`; `round`, `square` or `butt` | A meter's line and its ends |
@@ -92,6 +93,19 @@ the most useful:
 
 Themes never change spacing, font size or line height: widget heights are
 fixed, and content must still fit.
+
+### Headings in capitals
+
+HomeGlow's headings and buttons are in sentence case. Core widgets are drawn
+with MUI and plugins with CSS, so a theme that wants capitals sets two things
+to the same value:
+
+- `mui.headingTransform`: core headings, widget titles and every button.
+- `--hg-heading-transform`, with `--hg-heading-letter-spacing`: plugin
+  headings and the plugin widget header, its title and main button.
+
+With only one set, core widgets and plugins won't match. Starship sets both to
+`uppercase`.
 
 ## 4. Ambience: a scene behind the widgets
 
@@ -120,7 +134,7 @@ stars.
 | --- | --- | --- |
 | `image` | A still picture, or one of a list | `src` (a picture or a list), `anchor` (`bottom`, `top`, `center`, `fill`), `height` (e.g. `"42vh"`), `angle` (turns it, growing it to cover the screen), `flip`, `opacity`, `flex` (see [Pictures that bend](#4d-pictures-that-bend)) |
 | `sprites` | Copies of a picture, or a mix of pictures, spread across the screen | `src` or `pictures`, `count`, `height` (vh), `aspect` (width ÷ height), `span` (`[from, to]` %), `base` (distance from the bottom), `clumps` and `clumpWidth` (gather copies into that many patches, each that many percent wide, with open ground between, as plants grow), `lift` (percent of the screen above `base`, drawn per copy), `hue` (degrees to turn each copy's colors), `motion` (`sway`, `bob`, `pulse`, `none`), `angle` (sway degrees) or `distance` (bob px), `seconds`, `tint`, `flip`, `current`, `opacity`. Each of its `pictures` can bend with `flex` (see [Pictures that bend](#4d-pictures-that-bend)). |
-| `particles` | Many small things | `src` or `colors` (plain dots), `motion` (`rise`, `fall`, `twinkle`), `count`, `size` (px), `seconds`, `drift` (px), `span`, `opacity` |
+| `particles` | Many small things | `src` or `colors` (plain dots), `motion` (`rise`, `fall`, `twinkle`), `count`, `size` (px), `seconds`, `drift` (px), `swing` (px, manifest version 10) and `swingSeconds` (how fast it swings side to side), `blur` (px, manifest version 10), `span`, `opacity` |
 | `dots` | A still field of dots, painted once | `count`, `colors`, `size`, `opacity`. Each dot's size and opacity follow one brightness, mostly dim, so dim dots are small; the brightest get a halo. |
 | `field` | Drifting light (caustics) | `strength` (`soft`, `bright`), `spacing`, `seconds` |
 | `streaks` | An occasional streak on a random path | `color`, `length`, `every` (pause, seconds), `seconds`, `burst` (streaks per pass: a meteor storm) |

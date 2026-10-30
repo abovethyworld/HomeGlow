@@ -344,13 +344,13 @@ draws (`server/ha-panels/template.html`); each is also a plugin row
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/api/ha-panels` | Panels, whether Home Assistant is connected, PIN protection, the live link's state, the icon names. |
+| GET | `/api/ha-panels?device=` | Panels, whether Home Assistant is connected, PIN protection, the live link's state, the icon names. Each panel's `placed` is its size on `device`'s tabs (else on any display's), or null. |
 | GET | `/api/ha-panels/entities` | What the picker offers: supported entities (hidden and disabled ones left out), with areas from the registries. |
 | GET | `/api/ha-panels/preview-state?entities=` | Filtered states for the builder's live preview (read only). |
 | GET | `/api/ha-panels/history?limit=` | What panels did, newest first (the last 1000 are kept). |
 | PUT | `/api/ha-panels/settings` | `{ pinProtection }`. |
 | POST | `/api/ha-panels` | `{ recipe }` → a new panel and its plugin (`ha-<name>.html`). 400 with `errors` for a recipe it can't accept. |
-| PUT | `/api/ha-panels/:id` | `{ recipe }`. The plugin id and file stay the same. |
+| PUT | `/api/ha-panels/:id` | `{ recipe, resize }`. The plugin id and file stay the same. With `resize: true` and a `recipe.widget` size, the panel is resized on every tab it is placed on; `resized` in the answer says whether any layout changed, and when one did the household `settings` counter moves so displays reload their layouts. |
 | POST | `/api/ha-panels/:id/duplicate` | A copy, named "… copy". |
 | POST | `/api/ha-panels/import` | `{ recipe, replacements: { old: new } }` → the panel and the entity ids still `missing`. |
 | DELETE | `/api/ha-panels/:id` | Delete the panel and its plugin. Deleting the plugin from the Plugins list does the same. |
@@ -377,8 +377,8 @@ draws (`server/ha-panels/template.html`); each is also a plugin row
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET | `/api/admin-pin/exists` | Whether a PIN is set. |
-| POST | `/api/admin-pin/set` | Set/replace the PIN (4 to 8 digits), stored as salted scrypt. |
-| DELETE | `/api/admin-pin` | Remove the PIN. |
+| POST | `/api/admin-pin/set` | Set or replace the PIN (4 to 8 digits), stored as salted scrypt. Replacing one takes the current PIN, `{ pin, currentPin }`: 403 without it or with a wrong one, and 429 after too many wrong PINs. |
+| DELETE | `/api/admin-pin` | Remove the PIN. Takes the current PIN, `{ pin }`: 403 or 429 as above. A forgotten PIN is reset on the server instead: `node reset-admin-pin.js` (see the [deployment guide](../guides/deployment.md#resetting-a-forgotten-admin-pin)). |
 | POST | `/api/admin-pin/verify` | Verify an entered PIN → `{ valid }`. After five wrong PINs, 429 with `Retry-After` for 30 seconds, doubling to five minutes, even for the right one; the limit is shared with every route that checks the PIN. |
 
 Any write (`POST`, `PUT`, `PATCH`, `DELETE`) whose `Origin` is another website answers 403 (`server/utils/crossSiteWrites.js`). Requests with no `Origin`, plugin frames, `CORS_ORIGINS` and the dev server are unaffected.

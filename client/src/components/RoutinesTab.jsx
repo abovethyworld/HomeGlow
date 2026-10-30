@@ -4,8 +4,6 @@ import {
   Alert,
   Box,
   Button,
-  Card,
-  CardContent,
   Checkbox,
   Chip,
   CircularProgress,
@@ -14,27 +12,17 @@ import {
   DialogContent,
   DialogTitle,
   IconButton,
-  Paper,
-  Tab,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Tabs,
-  TextField,
   Tooltip,
   Typography,
 } from '@mui/material';
-import { Add, Delete, Edit, Refresh, Save, Warning } from '@mui/icons-material';
+import { Add, Delete, Edit, Refresh, Warning } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
+import { AdminGroup, AdminNote, AdminRow } from './AdminRows.jsx';
 import { API_BASE_URL } from '../utils/apiConfig.js';
 import { getWeekdayLabels } from '../utils/dateUtils.js';
 import useIsMobile from '../hooks/useIsMobile.js';
-import { compactStackedTableSx } from '../utils/responsiveTable.js';
-import ChoreIconPicker from './ChoreIconPicker.jsx';
 import RoutineEditorDialog from './RoutineEditorDialog.jsx';
+import RoutineStepDialog from './RoutineStepDialog.jsx';
 
 // The import note is shown until dismissed, once per import.
 const IMPORT_SEEN_KEY = 'homeglow.routinesImportSeen';
@@ -44,7 +32,7 @@ const writeSeen = (value) => { try { localStorage.setItem(IMPORT_SEEN_KEY, value
 // Admin → Family → Routines: routines (a list and an editor, laid out like
 // Chores) and the steps they are built from. A routine's steps are ticked in
 // its card on the Chores widget.
-export default function RoutinesTab({ subsection, subsections, onSubsection, setSaveMessage }) {
+export default function RoutinesTab({ subsection, setSaveMessage }) {
   const { t } = useTranslation(['chores', 'common']);
   const isMobile = useIsMobile();
   const [loading, setLoading] = useState(true);
@@ -58,9 +46,7 @@ export default function RoutinesTab({ subsection, subsections, onSubsection, set
   const [selected, setSelected] = useState(new Set());
   const [bulkDialog, setBulkDialog] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
-  const [stepForm, setStepForm] = useState({ id: null, label: '', icon: '' });
-  const [stepDialog, setStepDialog] = useState(false);
-  const [stepError, setStepError] = useState(null);
+  const [stepDialog, setStepDialog] = useState({ open: false, step: null });
 
   // The Admin Panel's one message area, as Chores uses it.
   const flash = useCallback((type, text) => {
@@ -159,20 +145,6 @@ export default function RoutinesTab({ subsection, subsections, onSubsection, set
     }
   };
 
-  const saveStep = async () => {
-    setStepError(null);
-    try {
-      const body = { label: stepForm.label, icon: stepForm.icon || null };
-      if (stepForm.id) await axios.patch(`${API_BASE_URL}/api/routine-steps/${stepForm.id}`, body);
-      else await axios.post(`${API_BASE_URL}/api/routine-steps`, body);
-      setStepForm({ id: null, label: '', icon: '' });
-      setStepDialog(false);
-      load();
-    } catch (error) {
-      setStepError(error?.response?.data?.error || t('chores:routines.saveFailed'));
-    }
-  };
-
   const removeStep = async (step) => {
     try {
       await axios.delete(`${API_BASE_URL}/api/routine-steps/${step.id}`);
@@ -183,205 +155,152 @@ export default function RoutinesTab({ subsection, subsections, onSubsection, set
     }
   };
 
-  const openStep = (step = null) => {
-    setStepError(null);
-    setStepForm(step ? { id: step.id, label: step.label, icon: step.icon || '' } : { id: null, label: '', icon: '' });
-    setStepDialog(true);
-  };
+  const openStep = (step = null) => setStepDialog({ open: true, step });
+
+  const iconBox = (icon) => (
+    <Box sx={{ width: 36, height: 36, borderRadius: 2, bgcolor: icon ? 'action.hover' : 'transparent', display: 'grid', placeItems: 'center', fontSize: 18 }}>
+      {icon || ''}
+    </Box>
+  );
 
   return (
-    <Card>
-      <CardContent>
-        <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
-          <Tabs
-            value={Math.max(0, subsections.indexOf(subsection))}
-            onChange={(_, index) => onSubsection(subsections[index])}
-            size="small"
-            variant="scrollable"
-            scrollButtons="auto"
-            allowScrollButtonsMobile
-          >
-            <Tab label={t('chores:routines.heading')} />
-            <Tab label={t('chores:routines.stepsHeading')} />
-          </Tabs>
-        </Box>
-
+    <Box>
         {loading ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}><CircularProgress /></Box>
         ) : subsection === 'steps' ? (
-          <>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
-              <Typography variant="h6">{t('chores:routines.stepsHeading')}</Typography>
+          <AdminGroup
+            title={t('chores:routines.stepsHeading')}
+            action={(
               <Button startIcon={<Add />} onClick={() => openStep()} variant="contained" size="small">
                 {t('chores:routines.newStep')}
               </Button>
-            </Box>
-            <Alert severity="info" sx={{ mb: 2 }}>{t('chores:routines.stepsIntro')}</Alert>
-            <TableContainer component={Paper}>
-              <Table size="small" sx={compactStackedTableSx}>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>{t('chores:routines.stepName')}</TableCell>
-                    <TableCell>{t('chores:routines.usedBy')}</TableCell>
-                    <TableCell>{t('common:labels.actions')}</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {steps.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={3} align="center" sx={{ py: 3 }}>
-                        <Typography color="text.secondary">{t('chores:routines.noSteps')}</Typography>
-                      </TableCell>
-                    </TableRow>
-                  ) : steps.map((step) => {
-                    const names = usedBy(step.id);
-                    return (
-                      <TableRow key={step.id}>
-                        <TableCell data-label={t('chores:routines.stepName')}>
-                          <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
-                            {step.icon && <Box component="span" sx={{ mr: 0.75 }}>{step.icon}</Box>}
-                            {step.label}
-                          </Typography>
-                        </TableCell>
-                        <TableCell data-label={t('chores:routines.usedBy')} className={names.length ? undefined : 'stack-empty'}>
-                          {names.length
-                            ? <Typography variant="body2" color="text.secondary">{names.join(', ')}</Typography>
-                            : <Typography variant="caption" color="text.secondary">—</Typography>}
-                        </TableCell>
-                        <TableCell>
-                          <Box sx={{ display: 'flex', gap: 0.5 }}>
-                            <Tooltip title={t('common:actions.edit')}>
-                              <IconButton size="small" color="primary" onClick={() => openStep(step)} aria-label={`${t('common:actions.edit')} ${step.label}`}>
-                                <Edit fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                            <Tooltip title={names.length ? t('chores:routines.stepInUseShort') : t('common:actions.delete')}>
-                              <span>
-                                <IconButton size="small" color="error" disabled={names.length > 0} onClick={() => removeStep(step)} aria-label={`${t('common:actions.delete')} ${step.label}`}>
-                                  <Delete fontSize="small" />
-                                </IconButton>
-                              </span>
-                            </Tooltip>
-                          </Box>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </>
+            )}
+          >
+            <AdminNote>{t('chores:routines.stepsIntro')}</AdminNote>
+            {steps.length === 0 ? (
+              <AdminNote>{t('chores:routines.noSteps')}</AdminNote>
+            ) : steps.map((step) => {
+              const names = usedBy(step.id);
+              return (
+                <AdminRow
+                  key={step.id}
+                  leading={iconBox(step.icon)}
+                  label={step.label}
+                  hint={names.length ? `${t('chores:routines.usedBy')}: ${names.join(', ')}` : null}
+                  control={(
+                    <>
+                      <Tooltip title={t('common:actions.edit')}>
+                        <IconButton size="small" onClick={() => openStep(step)} aria-label={`${t('common:actions.edit')} ${step.label}`}>
+                          <Edit fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title={names.length ? t('chores:routines.stepInUseShort') : t('common:actions.delete')}>
+                        <span>
+                          <IconButton size="small" color="error" disabled={names.length > 0} onClick={() => removeStep(step)} aria-label={`${t('common:actions.delete')} ${step.label}`}>
+                            <Delete fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    </>
+                  )}
+                />
+              );
+            })}
+          </AdminGroup>
         ) : (
           <>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
-              <Typography variant="h6">{t('chores:routines.heading')}</Typography>
-              <Box sx={{ display: 'flex', gap: 1 }}>
-                <Button startIcon={<Refresh />} onClick={load} variant="outlined" size="small">{t('common:actions.refresh')}</Button>
-                <Button startIcon={<Add />} onClick={() => setEditor({ open: true, routine: null })} variant="contained" size="small" disabled={users.length === 0}>
-                  {t('chores:routines.newRoutine')}
-                </Button>
-              </Box>
-            </Box>
             {imported && (
               <Alert severity="success" sx={{ mb: 2 }} onClose={() => { writeSeen(imported.at); setImported(null); }}>
                 {t('chores:routines.imported', { count: imported.routines })}
                 {imported.restored > 0 && ` ${t('chores:routines.importedRestored', { count: imported.restored })}`}
               </Alert>
             )}
-            <Alert severity="info" sx={{ mb: 2 }}>{t('chores:routines.intro')}</Alert>
-            <TableContainer component={Paper}>
-              {selected.size > 0 && (
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 1, bgcolor: 'action.hover' }}>
-                  <Typography variant="body2" sx={{ ml: 1 }}>
-                    {t('chores:schedules.selectedCount', { count: selected.size })}
-                  </Typography>
-                  <Button size="small" variant="contained" color="error" startIcon={<Delete />} onClick={() => setBulkDialog(true)}>
-                    {t('chores:schedules.deleteSelected')}
+            <AdminGroup
+              title={t('chores:routines.heading')}
+              action={(
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <Tooltip title={t('common:actions.refresh')}>
+                    <IconButton size="small" onClick={load} aria-label={t('common:actions.refresh')}>
+                      <Refresh fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                  <Button startIcon={<Add />} onClick={() => setEditor({ open: true, routine: null })} variant="contained" size="small" disabled={users.length === 0}>
+                    {t('chores:routines.newRoutine')}
                   </Button>
-                  <Button size="small" onClick={() => setSelected(new Set())}>{t('common:actions.clear')}</Button>
                 </Box>
               )}
-              <Table size="small" sx={compactStackedTableSx}>
-                <TableHead>
-                  <TableRow>
-                    <TableCell padding="checkbox">
+            >
+              <AdminNote>{t('chores:routines.intro')}</AdminNote>
+              {routines.length > 0 && (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', px: 1, py: 1, bgcolor: selected.size > 0 ? 'action.hover' : undefined }}>
+                  <Checkbox
+                    size="small"
+                    checked={routines.length > 0 && selected.size === routines.length}
+                    indeterminate={selected.size > 0 && selected.size < routines.length}
+                    onChange={toggleAll}
+                    slotProps={{ input: { 'aria-label': t('chores:routines.selectAll') } }}
+                  />
+                  {selected.size > 0 && (
+                    <>
+                      <Typography variant="body2">
+                        {t('chores:schedules.selectedCount', { count: selected.size })}
+                      </Typography>
+                      <Button size="small" variant="contained" color="error" startIcon={<Delete />} onClick={() => setBulkDialog(true)}>
+                        {t('chores:schedules.deleteSelected')}
+                      </Button>
+                      <Button size="small" onClick={() => setSelected(new Set())}>{t('common:actions.clear')}</Button>
+                    </>
+                  )}
+                </Box>
+              )}
+              {routines.length === 0 ? (
+                <AdminNote>{t('chores:routines.noRoutines')}</AdminNote>
+              ) : routines.map((routine) => (
+                <AdminRow
+                  key={routine.id}
+                  leading={(
+                    <>
                       <Checkbox
                         size="small"
-                        checked={routines.length > 0 && selected.size === routines.length}
-                        indeterminate={selected.size > 0 && selected.size < routines.length}
-                        disabled={routines.length === 0}
-                        onChange={toggleAll}
-                        slotProps={{ input: { 'aria-label': t('chores:routines.selectAll') } }}
+                        checked={selected.has(routine.id)}
+                        onChange={() => toggleSelected(routine.id)}
+                        slotProps={{ input: { 'aria-label': t('chores:routines.selectRoutine', { name: routine.name, person: userName(routine.user_id) }) } }}
+                        sx={{ ml: -1 }}
                       />
-                    </TableCell>
-                    <TableCell>{t('chores:routines.name')}</TableCell>
-                    <TableCell>{t('chores:routines.person')}</TableCell>
-                    <TableCell>{t('chores:routines.when')}</TableCell>
-                    <TableCell>{t('chores:routines.steps')}</TableCell>
-                    <TableCell>{t('chores:routines.reward')}</TableCell>
-                    <TableCell>{t('common:labels.actions')}</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {routines.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={7} align="center" sx={{ py: 3 }}>
-                        <Typography color="text.secondary">{t('chores:routines.noRoutines')}</Typography>
-                      </TableCell>
-                    </TableRow>
-                  ) : routines.map((routine) => (
-                    <TableRow key={routine.id} selected={selected.has(routine.id)}>
-                      {/* `stack-select`: on a phone it sits before the name, as in Chores. */}
-                      <TableCell padding="checkbox" className="stack-select">
-                        <Checkbox
-                          size="small"
-                          checked={selected.has(routine.id)}
-                          onChange={() => toggleSelected(routine.id)}
-                          slotProps={{ input: { 'aria-label': t('chores:routines.selectRoutine', { name: routine.name, person: userName(routine.user_id) }) } }}
-                        />
-                      </TableCell>
-                      <TableCell data-label={t('chores:routines.name')}>
-                        <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
-                          {routine.icon && <Box component="span" sx={{ mr: 0.75 }}>{routine.icon}</Box>}
-                          {routine.name}
-                        </Typography>
-                        {(routine.start_time || routine.end_time) && (
-                          <Typography variant="caption" color="text.secondary">
-                            🕑 {routine.start_time || ''}{routine.end_time ? `–${routine.end_time}` : ''}
-                          </Typography>
-                        )}
-                      </TableCell>
-                      <TableCell data-label={t('chores:routines.person')}>{userName(routine.user_id)}</TableCell>
-                      <TableCell data-label={t('chores:routines.when')}>{when(routine)}</TableCell>
-                      <TableCell data-label={t('chores:routines.steps')}>
-                        {routine.steps.length
-                          ? <Chip size="small" variant="outlined" label={t('chores:routines.stepCount', { count: routine.steps.length })} />
-                          : <Chip size="small" color="warning" label={t('chores:routines.needsSteps')} />}
-                      </TableCell>
-                      <TableCell data-label={t('chores:routines.reward')} className={routine.milestone_every && routine.milestone_clams ? undefined : 'stack-empty'}>
-                        {routine.milestone_every && routine.milestone_clams
-                          ? <Chip size="small" color="primary" label={t('chores:routines.rewardChip', { every: routine.milestone_every, clams: routine.milestone_clams })} />
-                          : <Typography variant="caption" color="text.secondary">—</Typography>}
-                      </TableCell>
-                      <TableCell>
-                        <Box sx={{ display: 'flex', gap: 0.5 }}>
-                          <Tooltip title={t('common:actions.edit')}>
-                            <IconButton size="small" color="primary" onClick={() => setEditor({ open: true, routine })} aria-label={`${t('common:actions.edit')} ${routine.name}`}>
-                              <Edit fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title={t('common:actions.delete')}>
-                            <IconButton size="small" color="error" onClick={() => setDeleting(routine)} aria-label={`${t('common:actions.delete')} ${routine.name}`}>
-                              <Delete fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        </Box>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
+                      {iconBox(routine.icon)}
+                    </>
+                  )}
+                  label={routine.name}
+                  hint={[
+                    userName(routine.user_id),
+                    (routine.start_time || routine.end_time) && `🕑 ${routine.start_time || ''}${routine.end_time ? `–${routine.end_time}` : ''}`,
+                  ].filter(Boolean).join(' · ')}
+                  // when() draws chips (weekdays, or the calendar match), so it
+                  // gets its own line rather than joining the text above.
+                  extra={<Box sx={{ pl: { xs: 0, sm: 9 } }}>{when(routine)}</Box>}
+                  control={(
+                    <>
+                      {routine.steps.length
+                        ? <Chip size="small" variant="outlined" label={t('chores:routines.stepCount', { count: routine.steps.length })} />
+                        : <Chip size="small" color="warning" label={t('chores:routines.needsSteps')} />}
+                      {routine.milestone_every && routine.milestone_clams
+                        ? <Chip size="small" color="primary" label={t('chores:routines.rewardChip', { every: routine.milestone_every, clams: routine.milestone_clams })} />
+                        : null}
+                      <Tooltip title={t('common:actions.edit')}>
+                        <IconButton size="small" onClick={() => setEditor({ open: true, routine })} aria-label={`${t('common:actions.edit')} ${routine.name}`}>
+                          <Edit fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title={t('common:actions.delete')}>
+                        <IconButton size="small" color="error" onClick={() => setDeleting(routine)} aria-label={`${t('common:actions.delete')} ${routine.name}`}>
+                          <Delete fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </>
+                  )}
+                />
+              ))}
+            </AdminGroup>
           </>
         )}
 
@@ -392,6 +311,7 @@ export default function RoutinesTab({ subsection, subsections, onSubsection, set
           users={users}
           sources={sources}
           onClose={() => setEditor({ open: false, routine: null })}
+          onStepAdded={(step) => setSteps((current) => [...current, step])}
           onSaved={(saved) => {
             setEditor({ open: false, routine: null });
             flash('success', Array.isArray(saved.routines)
@@ -439,38 +359,12 @@ export default function RoutinesTab({ subsection, subsections, onSubsection, set
           </DialogActions>
         </Dialog>
 
-        <Dialog
-          open={stepDialog}
-          onClose={() => setStepDialog(false)}
-          maxWidth="xs"
-          fullWidth
-          fullScreen={isMobile}
-          slotProps={{ paper: { component: 'form', onSubmit: (event) => { event.preventDefault(); saveStep(); } } }}
-        >
-          <DialogTitle>{stepForm.id ? t('chores:routines.editStep') : t('chores:routines.newStep')}</DialogTitle>
-          <DialogContent>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
-              {stepError && <Alert severity="error">{stepError}</Alert>}
-              <TextField
-                fullWidth
-                size="small"
-                required
-                autoFocus
-                label={t('chores:routines.stepName')}
-                placeholder={t('chores:routines.stepPlaceholder')}
-                value={stepForm.label}
-                onChange={(event) => setStepForm((form) => ({ ...form, label: event.target.value }))}
-                slotProps={{ htmlInput: { maxLength: 60 } }}
-              />
-              <ChoreIconPicker value={stepForm.icon} onChange={(icon) => setStepForm((form) => ({ ...form, icon }))} />
-            </Box>
-          </DialogContent>
-          <DialogActions>
-            <Button type="button" onClick={() => setStepDialog(false)}>{t('common:actions.cancel')}</Button>
-            <Button type="submit" variant="contained" startIcon={<Save />} disabled={!stepForm.label.trim()}>{t('common:actions.save')}</Button>
-          </DialogActions>
-        </Dialog>
-      </CardContent>
-    </Card>
+        <RoutineStepDialog
+          open={stepDialog.open}
+          step={stepDialog.step}
+          onClose={() => setStepDialog({ open: false, step: null })}
+          onSaved={() => { setStepDialog({ open: false, step: null }); load(); }}
+        />
+    </Box>
   );
 }
