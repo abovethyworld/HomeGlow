@@ -6,6 +6,23 @@ It is the record we will share with the HomeGlow project when the time comes.
 
 ## Shipped
 
+### Personalization: video backgrounds — 2026-10-29
+
+- What: the personalization background gains a `video` kind. It points at
+  a wallpaper package imported by the Wallpaper Engine plugin
+  (`/Uploads/wallpapers/<workshop id>/<file>.mp4`, with an optional still
+  poster from the same package) and a new `VideoBackground` layer plays
+  it muted and looping behind the widgets, in the same layer position as
+  the theme ambience. Reduced motion shows the poster instead. The
+  setting is the ordinary household/device appearance, so it scopes and
+  saves like every other background; no server change was needed, the
+  appearance value is opaque to the settings store and /Uploads already
+  streams with range support.
+- Why: the household's wallpapers are videos. A still photo background
+  (the upstream kinds) cannot show them moving.
+- Upstream idea: a video kind for personalization backgrounds, sourced
+  from files the server already streams.
+
 ### Family board: Today-only overview (`/board`) — 2026-10-26
 
 - What: a new route and view built for a kitchen wall display. It shows

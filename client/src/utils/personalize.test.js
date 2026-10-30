@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { GRADIENT_PRESETS, normalizeCardOpacity, parseColor, personalizationTokens } from './personalize.js';
+import { GRADIENT_PRESETS, normalizeBackground, normalizeCardOpacity, parseColor, personalizationTokens } from './personalize.js';
 
 describe('personalizationTokens', () => {
   it('sets nothing at the defaults, so the theme shows through', () => {
@@ -16,10 +16,41 @@ describe('personalizationTokens', () => {
     expect(image['--hg-page-image-size']).toBe('cover');
   });
 
+  it('turns a video background into the tokens the video layer reads', () => {
+    const tokens = personalizationTokens({
+      background: {
+        kind: 'video',
+        src: '/Uploads/wallpapers/2902931482/aquarium.mp4',
+        poster: '/Uploads/wallpapers/2902931482/preview.gif',
+      },
+    }, '');
+    expect(tokens['--hg-page-image']).toBe('none');
+    expect(tokens['--hg-bg-video']).toBe('url("/Uploads/wallpapers/2902931482/aquarium.mp4")');
+    expect(tokens['--hg-bg-video-poster']).toBe('url("/Uploads/wallpapers/2902931482/preview.gif")');
+  });
+
   it('scales the frame background the theme resolved to', () => {
     expect(personalizationTokens({ cardOpacity: 0.5 }, '#2a2a2a')['--hg-frame-bg']).toBe('rgba(42, 42, 42, 0.5)');
     expect(personalizationTokens({ cardOpacity: 0.5 }, 'rgba(250, 255, 255, 0.72)')['--hg-frame-bg']).toBe('rgba(250, 255, 255, 0.36)');
     expect(personalizationTokens({ cardOpacity: 0.5 }, 'not a color')).toEqual({});
+  });
+});
+
+describe('normalizeBackground video kind', () => {
+  const src = '/Uploads/wallpapers/2902931482/aquarium.mp4';
+  it('keeps an imported wallpaper video and its poster', () => {
+    expect(normalizeBackground({ kind: 'video', src, poster: '/Uploads/wallpapers/2902931482/preview.gif' }))
+      .toEqual({ kind: 'video', src, poster: '/Uploads/wallpapers/2902931482/preview.gif' });
+  });
+
+  it('drops a poster that is not a still from the same uploads area', () => {
+    expect(normalizeBackground({ kind: 'video', src, poster: 'https://example.com/x.gif' })).toEqual({ kind: 'video', src });
+  });
+
+  it('rejects video files outside the wallpaper imports', () => {
+    expect(normalizeBackground({ kind: 'video', src: 'https://example.com/movie.mp4' })).toBeUndefined();
+    expect(normalizeBackground({ kind: 'video', src: '/Uploads/users/movie.mp4' })).toBeUndefined();
+    expect(normalizeBackground({ kind: 'video', src: '/Uploads/wallpapers/2902931482/notes.txt' })).toBeUndefined();
   });
 });
 
